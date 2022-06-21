@@ -4,24 +4,36 @@
 """Placeholder for qlib-based simulator."""
 from dataclasses import dataclass
 from pathlib import Path
-from plistlib import Dict
 from typing import Callable, Generator, List, Optional, Tuple, Union
 
 import pandas as pd
+import qlib
 
-from qlib.backtest import Account, BaseExecutor, CommonInfrastructure, get_exchange
-from qlib.backtest.decision import Order
-from qlib.backtest.executor import NestedExecutor
+from qlib.backtest import get_exchange
+from qlib.backtest.account import Account
+from qlib.backtest.decision import Order, TradeRange, TradeRangeByTime
+from qlib.backtest.executor import BaseExecutor, NestedExecutor
+from qlib.backtest.utils import CommonInfrastructure
 from qlib.config import QlibConfig
 from qlib.rl.simulator import ActType, Simulator, StateType
 from qlib.strategy.base import BaseStrategy
 
 
 @dataclass
+class RuntimeConfig:
+    seed: int = 42
+    output_dir: Optional[Path] = None
+    checkpoint_dir: Optional[Path] = None
+    tb_log_dir: Optional[Path] = None
+    debug: bool = False
+    use_cuda: bool = True
+
+
+@dataclass
 class ExchangeConfig:
     limit_threshold: Union[float, Tuple[str, str]]
     deal_price: Union[str, Tuple[str, str]]
-    volume_threshold: Union[float, Dict[str, Tuple[str, str]]]
+    volume_threshold: dict
     open_cost: float = 0.0005
     close_cost: float = 0.0015
     min_cost: float = 5.
@@ -72,10 +84,12 @@ def get_common_infra(
 class QlibSimulator(Simulator[Order, StateType, ActType]):
     def __init__(
         self,
-        qlib_config: QlibConfig,
         time_per_step: str,
-        top_strategy: BaseStrategy,
-        inner_strategy_fn: Callable[[], BaseStrategy],
+        start_time: str,
+        end_time: str,
+        qlib_config: QlibConfig,
+        top_strategy_fn: Callable[[CommonInfrastructure, Order, TradeRange, str], BaseStrategy],
+        inner_strategy_fn: Callable[[CommonInfrastructure, Order, TradeRange, str], BaseStrategy],
         inner_executor_fn: Callable[[CommonInfrastructure], BaseExecutor],
         exchange_config: ExchangeConfig,
     ) -> None:
@@ -83,10 +97,10 @@ class QlibSimulator(Simulator[Order, StateType, ActType]):
             initial=None,  # TODO
         )
 
-        self.qlib_config = qlib_config
-
+        self._trade_range = TradeRangeByTime(start_time, end_time)
+        self._qlib_config = qlib_config
         self._time_per_step = time_per_step
-        self._top_strategy = top_strategy
+        self._top_strategy_fn = top_strategy_fn
         self._inner_executor_fn = inner_executor_fn
         self._inner_strategy_fn = inner_strategy_fn
         self._exchange_config = exchange_config
@@ -96,30 +110,32 @@ class QlibSimulator(Simulator[Order, StateType, ActType]):
 
         self._done = False
 
-    def _reset(
+    def reset(
         self,
-        instrument: str,
-        date_time: pd.Timestamp,
+        order: Order,
+        instrument: str = "SH600000",  # TODO: Test only. Remove this default value later.
     ) -> None:
         # TODO: init_qlib
 
         common_infra = get_common_infra(
             self._exchange_config,
-            trade_start_time=date_time,
-            trade_end_time=date_time,
+            trade_start_time=order.start_time,
+            trade_end_time=order.end_time,
             codes=[instrument],
         )
 
         self._executor = NestedExecutor(
             time_per_step=self._time_per_step,
             inner_executor=self._inner_executor_fn(common_infra),
-            inner_strategy=self._inner_strategy_fn(),
+            inner_strategy=self._inner_strategy_fn(common_infra, order, self._trade_range, instrument),
             track_data=True,
         )
 
-        self._executor.reset(start_time=date_time, end_time=date_time)
-        self._top_strategy.reset(level_infra=self._executor.get_level_infra())
-        self._collect_data_loop = self._executor.collect_data(self._top_strategy.generate_trade_decision(), level=0)
+        top_strategy = self._top_strategy_fn(common_infra, order, self._trade_range, instrument)
+
+        self._executor.reset(start_time=order.start_time, end_time=order.end_time)
+        top_strategy.reset(level_infra=self._executor.get_level_infra())
+        self._collect_data_loop = self._executor.collect_data(top_strategy.generate_trade_decision(), level=0)
         assert isinstance(self._collect_data_loop, Generator)
 
         self._done = False
@@ -130,9 +146,6 @@ class QlibSimulator(Simulator[Order, StateType, ActType]):
             while not isinstance(strategy, BaseStrategy):
                 strategy = self._collect_data_loop.send(action)
             assert isinstance(strategy, BaseStrategy)
-
-            # TODO: do something here
-
         except StopIteration:
             self._done = True
 

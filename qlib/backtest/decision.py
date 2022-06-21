@@ -530,7 +530,7 @@ class TradeDecisionWO(BaseTradeDecision):
     Besides, the time_range is also included.
     """
 
-    def __init__(self, order_list: List[Order], strategy: BaseStrategy, trade_range: Tuple[int, int] = None):
+    def __init__(self, order_list: List[Order], strategy: BaseStrategy, trade_range: Union[Tuple[int, int], TradeRange] = None):
         super().__init__(strategy, trade_range=trade_range)
         self.order_list = order_list
         start, end = strategy.trade_calendar.get_step_time()
