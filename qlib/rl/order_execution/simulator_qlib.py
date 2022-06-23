@@ -2,12 +2,9 @@
 # Licensed under the MIT License.
 
 """Placeholder for qlib-based simulator."""
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Callable, Generator, List, Optional, Tuple, Union
+from typing import Callable, Generator, List, Optional
 
 import pandas as pd
-import qlib
 
 from qlib.backtest import get_exchange
 from qlib.backtest.account import Account
@@ -15,31 +12,10 @@ from qlib.backtest.decision import Order, TradeRange, TradeRangeByTime
 from qlib.backtest.executor import BaseExecutor, NestedExecutor
 from qlib.backtest.utils import CommonInfrastructure
 from qlib.config import QlibConfig
+from qlib.rl.order_execution.from_neutrader.config import ExchangeConfig
+from qlib.rl.order_execution.from_neutrader.feature import init_qlib
 from qlib.rl.simulator import ActType, Simulator, StateType
 from qlib.strategy.base import BaseStrategy
-
-
-@dataclass
-class RuntimeConfig:
-    seed: int = 42
-    output_dir: Optional[Path] = None
-    checkpoint_dir: Optional[Path] = None
-    tb_log_dir: Optional[Path] = None
-    debug: bool = False
-    use_cuda: bool = True
-
-
-@dataclass
-class ExchangeConfig:
-    limit_threshold: Union[float, Tuple[str, str]]
-    deal_price: Union[str, Tuple[str, str]]
-    volume_threshold: dict
-    open_cost: float = 0.0005
-    close_cost: float = 0.0015
-    min_cost: float = 5.
-    trade_unit: Optional[float] = 100.
-    cash_limit: Optional[Union[Path, float]] = None
-    generate_report: bool = False
 
 
 def get_common_infra(
@@ -115,7 +91,7 @@ class QlibSimulator(Simulator[Order, StateType, ActType]):
         order: Order,
         instrument: str = "SH600000",  # TODO: Test only. Remove this default value later.
     ) -> None:
-        # TODO: init_qlib
+        init_qlib(self._qlib_config, instrument)
 
         common_infra = get_common_infra(
             self._exchange_config,
@@ -135,17 +111,23 @@ class QlibSimulator(Simulator[Order, StateType, ActType]):
 
         self._executor.reset(start_time=order.start_time, end_time=order.end_time)
         top_strategy.reset(level_infra=self._executor.get_level_infra())
+
         self._collect_data_loop = self._executor.collect_data(top_strategy.generate_trade_decision(), level=0)
         assert isinstance(self._collect_data_loop, Generator)
+        strategy = self._iter_strategy(action=None)
 
         self._done = False
 
+    def _iter_strategy(self, action: ActType = None) -> BaseStrategy:
+        strategy = next(self._collect_data_loop) if action is None else self._collect_data_loop.send(action)
+        while not isinstance(strategy, BaseStrategy):
+            strategy = next(self._collect_data_loop) if action is None else self._collect_data_loop.send(action)
+        assert isinstance(strategy, BaseStrategy)
+        return strategy
+
     def step(self, action: ActType) -> None:
         try:
-            strategy = self._collect_data_loop.send(action)
-            while not isinstance(strategy, BaseStrategy):
-                strategy = self._collect_data_loop.send(action)
-            assert isinstance(strategy, BaseStrategy)
+            strategy = self._iter_strategy(action=action)
         except StopIteration:
             self._done = True
 
