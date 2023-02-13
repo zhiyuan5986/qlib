@@ -10,6 +10,8 @@ import pandas as pd
 from typing import Text, Union
 import copy
 import math
+
+from ...data.dataset.weight import Reweighter
 from ...utils import get_or_create_path
 from ...log import get_module_logger
 
@@ -30,6 +32,7 @@ class TransformerModel(Model):
         d_feat: int = 20,
         d_model: int = 64,
         batch_size: int = 2048,
+        dim_feedforward: int = 2048,
         nhead: int = 2,
         num_layers: int = 2,
         dropout: float = 0,
@@ -61,13 +64,13 @@ class TransformerModel(Model):
         self.device = torch.device("cuda:%d" % GPU if torch.cuda.is_available() and GPU >= 0 else "cpu")
         self.seed = seed
         self.logger = get_module_logger("TransformerModel")
-        self.logger.info("Naive Transformer:" "\nbatch_size : {}" "\ndevice : {}".format(self.batch_size, self.device))
+        self.logger.info("Naive Transformer:" "\nbatch_size : {}" "\ndim : {}".format(self.batch_size, dim_feedforward))
 
         if self.seed is not None:
             np.random.seed(self.seed)
             torch.manual_seed(self.seed)
 
-        self.model = Transformer(d_feat, d_model, nhead, num_layers, dropout, self.device)
+        self.model = Transformer(d_feat, d_model, dim_feedforward, nhead, num_layers, dropout, self.device)
         if optimizer.lower() == "adam":
             self.train_optimizer = optim.Adam(self.model.parameters(), lr=self.lr, weight_decay=self.reg)
         elif optimizer.lower() == "gd":
@@ -82,28 +85,39 @@ class TransformerModel(Model):
     def use_gpu(self):
         return self.device != torch.device("cpu")
 
-    def mse(self, pred, label):
-        loss = (pred.float() - label.float()) ** 2
-        return torch.mean(loss)
+    def mse(self, pred, label, weight):
+        loss = (pred - label) ** 2
+        if weight is None:
+            return torch.mean(loss)
+        else:
+            return torch.mean(loss * weight)
 
-    def loss_fn(self, pred, label):
-        mask = ~torch.isnan(label)
-
+    def loss_fn(self, pred, label, weight=None):
+        # mask = ~torch.isnan(label)
+        # pred = pred[mask]
+        # label = label[mask]
+        # if weight is None:
+        #     weight = torch.ones_like(label)
         if self.loss == "mse":
-            return self.mse(pred[mask], label[mask])
+            return self.mse(pred, label, weight)
+        elif self.loss == 'ic':
+            return -torch.dot(
+                (pred - pred.mean()) / np.sqrt(pred.shape[0]) / pred.std(),
+                (label - label.mean()) / np.sqrt(label.shape[0]) / label.std(),
+            )
 
         raise ValueError("unknown loss `%s`" % self.loss)
 
     def metric_fn(self, pred, label):
 
-        mask = torch.isfinite(label)
+        # mask = torch.isfinite(label)
 
         if self.metric in ("", "loss"):
-            return -self.loss_fn(pred[mask], label[mask])
+            return -self.loss_fn(pred, label)
 
         raise ValueError("unknown metric `%s`" % self.metric)
 
-    def train_epoch(self, x_train, y_train):
+    def train_epoch(self, x_train, y_train, w_train):
 
         x_train_values = x_train.values
         y_train_values = np.squeeze(y_train.values)
@@ -120,13 +134,16 @@ class TransformerModel(Model):
 
             feature = torch.from_numpy(x_train_values[indices[i : i + self.batch_size]]).float().to(self.device)
             label = torch.from_numpy(y_train_values[indices[i : i + self.batch_size]]).float().to(self.device)
-
+            if w_train is None:
+                weight = None
+            else:
+                weight = torch.from_numpy(w_train[indices[i: i + self.batch_size]]).float().to(self.device)
             pred = self.model(feature)
-            loss = self.loss_fn(pred, label)
+            loss = self.loss_fn(pred, label, weight)
 
             self.train_optimizer.zero_grad()
             loss.backward()
-            torch.nn.utils.clip_grad_value_(self.model.parameters(), 3.0)
+            # torch.nn.utils.clip_grad_value_(self.lstm_model.parameters(), 3.0)
             self.train_optimizer.step()
 
     def test_epoch(self, data_x, data_y):
@@ -152,19 +169,20 @@ class TransformerModel(Model):
 
             with torch.no_grad():
                 pred = self.model(feature)
-                loss = self.loss_fn(pred, label)
-                losses.append(loss.item())
+                # loss = self.loss_fn(pred, label)
+                # losses.append(loss.item())
 
                 score = self.metric_fn(pred, label)
                 scores.append(score.item())
 
-        return np.mean(losses), np.mean(scores)
+        return np.mean(scores)
 
     def fit(
         self,
         dataset: DatasetH,
         evals_result=dict(),
         save_path=None,
+        reweighter=None,
     ):
 
         df_train, df_valid, df_test = dataset.prepare(
@@ -174,6 +192,17 @@ class TransformerModel(Model):
         )
         if df_train.empty or df_valid.empty:
             raise ValueError("Empty data from dataset, please check your dataset config.")
+
+        if reweighter is None:
+            wl_train = None
+            wl_valid = None
+            # wl_train = np.ones(len(df_train))
+            # wl_valid = np.ones(len(df_valid))
+        elif isinstance(reweighter, Reweighter):
+            wl_train = reweighter.reweight(df_train).values
+            # wl_valid = reweighter.reweight(df_valid).values
+        else:
+            raise ValueError("Unsupported reweighter type.")
 
         x_train, y_train = df_train["feature"], df_train["label"]
         x_valid, y_valid = df_valid["feature"], df_valid["label"]
@@ -193,12 +222,12 @@ class TransformerModel(Model):
         for step in range(self.n_epochs):
             self.logger.info("Epoch%d:", step)
             self.logger.info("training...")
-            self.train_epoch(x_train, y_train)
+            self.train_epoch(x_train, y_train, wl_train)
             self.logger.info("evaluating...")
-            train_loss, train_score = self.test_epoch(x_train, y_train)
-            val_loss, val_score = self.test_epoch(x_valid, y_valid)
-            self.logger.info("train %.6f, valid %.6f" % (train_score, val_score))
-            evals_result["train"].append(train_score)
+            # train_loss, train_score = self.test_epoch(x_train, y_train)
+            val_score = self.test_epoch(x_valid, y_valid)
+            self.logger.info("valid %.6f" % (val_score))
+            # evals_result["train"].append(train_score)
             evals_result["valid"].append(val_score)
 
             if val_score > best_score:
@@ -264,11 +293,11 @@ class PositionalEncoding(nn.Module):
 
 
 class Transformer(nn.Module):
-    def __init__(self, d_feat=6, d_model=8, nhead=4, num_layers=2, dropout=0.5, device=None):
+    def __init__(self, d_feat=6, d_model=8, dim_feedforward=2048, nhead=4, num_layers=2, dropout=0.5, device=None):
         super(Transformer, self).__init__()
         self.feature_layer = nn.Linear(d_feat, d_model)
         self.pos_encoder = PositionalEncoding(d_model)
-        self.encoder_layer = nn.TransformerEncoderLayer(d_model=d_model, nhead=nhead, dropout=dropout)
+        self.encoder_layer = nn.TransformerEncoderLayer(d_model=d_model, dim_feedforward=dim_feedforward, nhead=nhead, dropout=dropout)
         self.transformer_encoder = nn.TransformerEncoder(self.encoder_layer, num_layers=num_layers)
         self.decoder_layer = nn.Linear(d_model, 1)
         self.device = device

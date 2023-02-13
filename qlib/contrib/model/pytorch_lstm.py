@@ -9,6 +9,8 @@ import numpy as np
 import pandas as pd
 from typing import Text, Union
 import copy
+
+from ...data.dataset.weight import Reweighter
 from ...utils import get_or_create_path
 from ...log import get_module_logger
 
@@ -129,28 +131,39 @@ class LSTM(Model):
     def use_gpu(self):
         return self.device != torch.device("cpu")
 
-    def mse(self, pred, label):
+    def mse(self, pred, label, weight):
         loss = (pred - label) ** 2
-        return torch.mean(loss)
+        if weight is None:
+            return torch.mean(loss)
+        else:
+            return torch.mean(loss * weight)
 
-    def loss_fn(self, pred, label):
-        mask = ~torch.isnan(label)
-
+    def loss_fn(self, pred, label, weight=None):
+        # mask = ~torch.isnan(label)
+        # pred = pred[mask]
+        # label = label[mask]
+        # if weight is None:
+        #     weight = torch.ones_like(label)
         if self.loss == "mse":
-            return self.mse(pred[mask], label[mask])
+            return self.mse(pred, label, weight)
+        elif self.loss == 'ic':
+            return -torch.dot(
+                (pred - pred.mean()) / np.sqrt(pred.shape[0]) / pred.std(),
+                (label - label.mean()) / np.sqrt(label.shape[0]) / label.std(),
+            )
 
         raise ValueError("unknown loss `%s`" % self.loss)
 
     def metric_fn(self, pred, label):
 
-        mask = torch.isfinite(label)
+        # mask = torch.isfinite(label)
 
         if self.metric in ("", "loss"):
-            return -self.loss_fn(pred[mask], label[mask])
+            return -self.loss_fn(pred, label)
 
         raise ValueError("unknown metric `%s`" % self.metric)
 
-    def train_epoch(self, x_train, y_train):
+    def train_epoch(self, x_train, y_train, w_train):
 
         x_train_values = x_train.values
         y_train_values = np.squeeze(y_train.values)
@@ -167,13 +180,16 @@ class LSTM(Model):
 
             feature = torch.from_numpy(x_train_values[indices[i : i + self.batch_size]]).float().to(self.device)
             label = torch.from_numpy(y_train_values[indices[i : i + self.batch_size]]).float().to(self.device)
-
+            if w_train is None:
+                weight = None
+            else:
+                weight = torch.from_numpy(w_train[indices[i: i + self.batch_size]]).float().to(self.device)
             pred = self.lstm_model(feature)
-            loss = self.loss_fn(pred, label)
+            loss = self.loss_fn(pred, label, weight)
 
             self.train_optimizer.zero_grad()
             loss.backward()
-            torch.nn.utils.clip_grad_value_(self.lstm_model.parameters(), 3.0)
+            # torch.nn.utils.clip_grad_value_(self.lstm_model.parameters(), 3.0)
             self.train_optimizer.step()
 
     def test_epoch(self, data_x, data_y):
@@ -197,20 +213,22 @@ class LSTM(Model):
             feature = torch.from_numpy(x_values[indices[i : i + self.batch_size]]).float().to(self.device)
             label = torch.from_numpy(y_values[indices[i : i + self.batch_size]]).float().to(self.device)
 
-            pred = self.lstm_model(feature)
-            loss = self.loss_fn(pred, label)
-            losses.append(loss.item())
+            with torch.no_grad():
+                pred = self.lstm_model(feature)
+                # loss = self.loss_fn(pred, label)
+                # losses.append(loss.item())
 
-            score = self.metric_fn(pred, label)
-            scores.append(score.item())
+                score = self.metric_fn(pred, label)
+                scores.append(score.item())
 
-        return np.mean(losses), np.mean(scores)
+        return np.mean(scores)
 
     def fit(
         self,
         dataset: DatasetH,
         evals_result=dict(),
         save_path=None,
+        reweighter=None,
     ):
 
         df_train, df_valid, df_test = dataset.prepare(
@@ -220,6 +238,17 @@ class LSTM(Model):
         )
         if df_train.empty or df_valid.empty:
             raise ValueError("Empty data from dataset, please check your dataset config.")
+
+        if reweighter is None:
+            wl_train = None
+            # wl_valid = None
+            # wl_train = np.ones(len(df_train))
+            # wl_valid = np.ones(len(df_valid))
+        elif isinstance(reweighter, Reweighter):
+            wl_train = reweighter.reweight(df_train).values
+            # wl_valid = reweighter.reweight(df_valid).values
+        else:
+            raise ValueError("Unsupported reweighter type.")
 
         x_train, y_train = df_train["feature"], df_train["label"]
         x_valid, y_valid = df_valid["feature"], df_valid["label"]
@@ -239,12 +268,12 @@ class LSTM(Model):
         for step in range(self.n_epochs):
             self.logger.info("Epoch%d:", step)
             self.logger.info("training...")
-            self.train_epoch(x_train, y_train)
+            self.train_epoch(x_train, y_train, wl_train)
             self.logger.info("evaluating...")
-            train_loss, train_score = self.test_epoch(x_train, y_train)
-            val_loss, val_score = self.test_epoch(x_valid, y_valid)
-            self.logger.info("train %.6f, valid %.6f" % (train_score, val_score))
-            evals_result["train"].append(train_score)
+            # train_loss, train_score = self.test_epoch(x_train, y_train)
+            val_score = self.test_epoch(x_valid, y_valid)
+            self.logger.info("valid %.6f" % (val_score))
+            # evals_result["train"].append(train_score)
             evals_result["valid"].append(val_score)
 
             if val_score > best_score:

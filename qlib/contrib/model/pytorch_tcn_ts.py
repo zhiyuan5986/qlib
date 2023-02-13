@@ -295,6 +295,6 @@ class TCNModel(nn.Module):
         self.linear = nn.Linear(num_channels[-1], output_size)
 
     def forward(self, x):
-        output = self.tcn(x)
+        output = self.tcn(x.permute(0, 2, 1))
         output = self.linear(output[:, :, -1])
         return output.squeeze()
