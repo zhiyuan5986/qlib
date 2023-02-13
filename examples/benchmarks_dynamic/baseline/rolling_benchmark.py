@@ -43,15 +43,16 @@ class RollingBenchmark:
 
     """
 
-    def __init__(self, data_dir='cn_data', market='csi300', rolling_exp="rolling_models",
+    def __init__(self, data_dir='cn_data', market='csi300', init_data=True,
                  model_type="linear", step=20, alpha="158", horizon=1, rank_label=True) -> None:
         self.data_dir = data_dir
         self.market = market
-        if data_dir == 'cn_data':
-            GetData().qlib_data(target_dir="~/.qlib/qlib_data/cn_data", exists_skip=True)
-            auto_init()
-        else:
-            qlib.init(provider_uri='~/.qlib/qlib_data/' + data_dir, region='us' if self.data_dir == 'us_data' else 'cn')
+        if init_data:
+            if data_dir == 'cn_data':
+                GetData().qlib_data(target_dir="~/.qlib/qlib_data/cn_data", exists_skip=True)
+                auto_init()
+            else:
+                qlib.init(provider_uri='~/.qlib/qlib_data/' + data_dir, region='us' if self.data_dir == 'us_data' else 'cn')
         self.step = step
         self.horizon = horizon
         # self.rolling_exp = rolling_exp
@@ -99,8 +100,8 @@ class RollingBenchmark:
             filename = "alpha{}_handler_horizon{}.pkl".format(self.alpha, self.horizon)
             # raise AssertionError("Model type is not supported!")
 
-        filename = f'{self.data_dir}_{self.market}_{filename}'
-        h_path = DIRNAME.parent / "baseline" / (filename if self.rank_label else 'znorm_' + filename)
+        filename = f'{self.data_dir}_{self.market}_rank{self.rank_label}_{filename}'
+        h_path = DIRNAME.parent / "baseline" / filename
 
         with conf_path.open("r") as f:
             conf = yaml.safe_load(f)
@@ -136,8 +137,8 @@ class RollingBenchmark:
             h_conf = task["dataset"]["kwargs"]["handler"]
             if not self.rank_label and not (self.model_type == 'gbdt' or self.alpha == 158):
                 proc = h_conf['kwargs']['learn_processors'][-1]
-                if isinstance(proc, str) and proc == 'CSRankNorm' or isinstance(proc, dict) and proc[
-                    'class'] == 'CSRankNorm':
+                if isinstance(proc, str) and proc == 'CSRankNorm' or \
+                        isinstance(proc, dict) and proc['class'] == 'CSRankNorm':
                     h_conf['kwargs']['learn_processors'] = h_conf['kwargs']['learn_processors'][:-1]
                     print("Remove CSRankNorm")
                     h_conf['kwargs']['learn_processors'].append(

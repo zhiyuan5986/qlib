@@ -41,7 +41,7 @@ class DDGDA:
     """
 
     def __init__(self, data_dir='cn_data', market='csi300', sim_task_model="linear",
-                 forecast_model="linear", alpha="158", rank_label=True):
+                 forecast_model="linear", alpha="158", rank_label=True, step=20, horizon=1):
         self.data_dir = data_dir
         self.market = market
         if data_dir == 'cn_data':
@@ -49,10 +49,10 @@ class DDGDA:
             auto_init()
         else:
             qlib.init(provider_uri='~/.qlib/qlib_data/' + data_dir, region='us' if self.data_dir == 'us_data' else 'cn')
-        self.step = 20
+        self.step = step
         # NOTE:
         # the horizon must match the meaning in the base task template
-        self.horizon = 1
+        self.horizon = horizon
         self.sim_task_model = sim_task_model  # The model to capture the distribution of data.
         self.forecast_model = forecast_model  # downstream forecasting models' type
         self.alpha = alpha
@@ -71,7 +71,7 @@ class DDGDA:
     def get_feature_importance(self):
         # this must be lightGBM, because it needs to get the feature importance
         rb = RollingBenchmark(data_dir=self.data_dir, market=self.market, model_type="gbdt", alpha=self.alpha,
-                              rank_label=self.rank_label)
+                              horizon=self.horizon, step=self.step, init_data=False, rank_label=self.rank_label)
         task = rb.basic_task()
 
         with R.start(experiment_name="feature_importance"):
@@ -103,9 +103,9 @@ class DDGDA:
         The src model will be trained upon the proxy forecasting model.
         This dataset is for the proxy forecasting model.
         """
-
         rb = RollingBenchmark(data_dir=self.data_dir, market=self.market, model_type=self.sim_task_model,
-                              alpha=self.alpha, rank_label=self.rank_label)
+                              alpha=self.alpha, horizon=self.horizon, step=self.step, rank_label=self.rank_label,
+                              init_data=False)
         task = rb.basic_task()
         dataset = init_instance_by_config(task["dataset"])
         prep_ds = dataset.prepare(slice(None), col_set=["feature", "label"], data_key=DataHandlerLP.DK_L)
@@ -148,7 +148,8 @@ class DDGDA:
         """
         # According to the experiments, the choice of the model type is very important for achieving good results
         rb = RollingBenchmark(data_dir=self.data_dir, market=self.market, model_type=self.sim_task_model,
-                              alpha=self.alpha, rank_label=self.rank_label)
+                              alpha=self.alpha, horizon=self.horizon, step=self.step, rank_label=self.rank_label,
+                              init_data=False)
         sim_task = rb.basic_task()
 
         if self.sim_task_model == "gbdt":
@@ -169,7 +170,8 @@ class DDGDA:
         # 1) leverage the simplified proxy forecasting model to train src model.
         # - Only the dataset part is important, in current version of src model will integrate the
         rb = RollingBenchmark(data_dir=self.data_dir, market=self.market, model_type=self.sim_task_model,
-                              alpha=self.alpha, rank_label=self.rank_label)
+                              alpha=self.alpha, horizon=self.horizon, step=self.step, rank_label=self.rank_label,
+                              init_data=False)
         sim_task = rb.basic_task()
         proxy_forecast_model_task = {
             # "model": "qlib.contrib.model.linear.LinearModel",
@@ -245,9 +247,9 @@ class DDGDA:
         hist_step_n = int(param["hist_step_n"])
         fill_method = param.get("fill_method", "max")
 
-        rb = RollingBenchmark(data_dir=self.data_dir, market=self.market,
-                              model_type=self.forecast_model, alpha=self.alpha, tag=self.tag,
-                              rank_label=self.rank_label)
+        rb = RollingBenchmark(data_dir=self.data_dir, market=self.market, model_type=self.forecast_model,
+                              alpha=self.alpha, horizon=self.horizon, step=self.step, rank_label=self.rank_label,
+                              init_data=False)
         task_l = rb.create_rolling_tasks()
 
         # 2.2) create meta dataset for final dataset
@@ -277,8 +279,9 @@ class DDGDA:
         """
         with self._task_path.open("rb") as f:
             tasks = copy.deepcopy(pickle.load(f))
-        rb = RollingBenchmark(data_dir=self.data_dir, market=self.market, rolling_exp="rolling_ds",
-                              model_type=self.forecast_model, alpha=self.alpha, rank_label=self.rank_label)
+        rb = RollingBenchmark(data_dir=self.data_dir, market=self.market, model_type=self.forecast_model,
+                              alpha=self.alpha, horizon=self.horizon, step=self.step, rank_label=self.rank_label,
+                              init_data=False)
         rb.tag = str(time.time()) + '_DDG-DA'
         rec = rb.run_all(tasks)
         return rec, rb.COMB_EXP
@@ -297,7 +300,27 @@ class DDGDA:
         # 5) load the saved tasks and train model
         self.train_and_eval_tasks()
 
-    def run_exp(self):
+    def run_offline(self):
+        train_time = []
+        start_time = time.time()
+        self.dump_data_for_proxy_model()
+        self.dump_meta_ipt()
+        data_time = time.time() - start_time
+        print(time.time() - start_time)
+        for i in range(0, 10):
+            self.seed = 43 + i
+            np.random.seed(self.seed)
+            torch.manual_seed(self.seed)
+            torch.cuda.manual_seed(self.seed)
+            torch.cuda.manual_seed_all(self.seed)
+            start_time = time.time()
+            self.train_meta_model(seed=self.seed)
+            train_time.append(time.time() - start_time)
+
+        train_time = np.array(train_time)
+        print(f'Time cost: {train_time.mean() + data_time}')
+
+    def run_online(self):
         all_metrics = {k: [] for k in [
             # 'rmse', 'mae',
             'IC', 'ICIR', 'Rank IC', 'Rank ICIR',
@@ -309,29 +332,20 @@ class DDGDA:
             '1day.excess_return_with_cost.max_drawdown'
         ]}
 
-        train_time = []
         test_time = []
-        start_time = time.time()
-        # self.dump_data_for_proxy_model()
-        # self.dump_meta_ipt()
-        data_time = time.time() - start_time
-        print(time.time() - start_time)
         for i in range(0, 10):
             self.seed = 43 + i
             np.random.seed(self.seed)
             torch.manual_seed(self.seed)
             torch.cuda.manual_seed(self.seed)
             torch.cuda.manual_seed_all(self.seed)
-            # start_time = time.time()
-            # self.train_meta_model(seed=self.seed)
-            # train_time.append(time.time() - start_time)
             start_time = time.time()
             self.meta_inference()
             self.tag = str(start_time)
             rec, experiment_name = self.train_and_eval_tasks()
             test_time.append(time.time() - start_time)
-            # exp = R.get_exp(experiment_name=experiment_name)
-            # rec = exp.list_recorders(rtype=exp.RT_L)[0]
+            exp = R.get_exp(experiment_name=experiment_name)
+            rec = exp.list_recorders(rtype=exp.RT_L)[0]
             metrics = rec.list_metrics()
             for k in all_metrics.keys():
                 all_metrics[k].append(metrics[k])
@@ -339,9 +353,9 @@ class DDGDA:
 
         with R.start(experiment_name="final_" + self.exp_name):
             R.save_objects(all_metrics=all_metrics)
-            train_time, test_time = np.array(train_time), np.array(test_time)
-            print(f'Time cost: {train_time.mean() + data_time}\t{test_time.mean()}')
-            R.log_metrics(train_time=train_time.mean(), test_time=test_time.mean())
+            test_time = np.array(test_time)
+            print(f'Time cost: {test_time.mean()}')
+            R.log_metrics(test_time=test_time.mean())
             res = {}
             for k in all_metrics.keys():
                 v = np.array(all_metrics[k])
