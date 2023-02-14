@@ -57,6 +57,7 @@ class MetaModelDS:
         self.gamma = 0.000
         self.lamda = 0.5
         self.buffer_size = self.sample_num * 2
+        self.begin_valid_epoch = 10
 
     def fit(self, meta_tasks_train, meta_tasks_valid):
         self.cnt = 0
@@ -69,6 +70,8 @@ class MetaModelDS:
         best_checkpoint = copy.deepcopy(self.tn.state_dict())
         for epoch in tqdm(range(300), desc="epoch"):
             self.meta_train_epoch(meta_tasks_train)
+            if epoch < self.begin_valid_epoch:
+                continue
             pred_y, ic = self.meta_valid_epoch(meta_tasks_valid)
             if ic < best_ic:
                 patience -= 1
