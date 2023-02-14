@@ -25,12 +25,6 @@ from qlib.workflow.record_temp import PortAnaRecord, SigAnaRecord, SignalRecord
 
 
 class Benchmark:
-    """
-    **NOTE**
-    before running the example, please clean your previous results with following command
-    - `rm -r mlruns`
-
-    """
 
     def __init__(self, data_dir='cn_data', market='csi300', model_type="linear", alpha="158", rank_label=True) -> None:
         self.data_dir = data_dir

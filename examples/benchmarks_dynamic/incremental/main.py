@@ -20,13 +20,12 @@ from qlib.tests.data import GetData
 
 from qlib.data.dataset.handler import DataHandlerLP
 
-from src.model import MetaModelDS
-from src.dataset import MetaDatasetDS
-from util import *
-
 DIRNAME = Path(__file__).absolute().resolve().parent
 sys.path.append(str(DIRNAME))
 sys.path.append(str(DIRNAME.parent.parent.parent))
+from src.model import MetaModelDS
+from src.dataset import MetaDatasetDS
+from util import *
 from examples.benchmarks_dynamic.baseline.benchmark import Benchmark
 from examples.benchmarks_dynamic.baseline.rolling_benchmark import RollingBenchmark
 
@@ -164,9 +163,6 @@ class Incremental:
             step=self.step,
             segments=seperate_point,
             # trunc_days=self.horizon+1,
-            hist_step_n=30,
-            fill_method="max",
-            rolling_ext_days=0,
             task_mode='train',
         )
         if self.forecast_model == 'MLP' and self.alpha == 158:

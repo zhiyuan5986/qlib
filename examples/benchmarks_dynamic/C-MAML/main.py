@@ -77,9 +77,6 @@ class OKASA(Incremental):
             # segments=0.7,  # keep test period consistent with the dataset yaml
             segments=seperate_point,
             # trunc_days=self.horizon+1,
-            hist_step_n=30,
-            fill_method="max",
-            rolling_ext_days=0,
             task_mode='train',
         )
         if self.forecast_model == 'MLP' and self.alpha == 158:

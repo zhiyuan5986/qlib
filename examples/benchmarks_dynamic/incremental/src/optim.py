@@ -8,7 +8,8 @@ import torch as _torch
 
 import sys
 
-patch._internal_attrs.remove('_forward_pre_hooks')
+if '_forward_pre_hooks' in patch._internal_attrs:
+    patch._internal_attrs.remove('_forward_pre_hooks')
 
 class DifferentiableOptimizer(optim.DifferentiableOptimizer):
     def step(

@@ -54,9 +54,8 @@ def get_data_from_seg(seg, data, test=False):
 class MetaTaskDS:
     """Meta Task for Data Selection"""
 
-    def __init__(self, task: dict, ta: TimeAdjuster, fill_method="max", data=None, data_I=None, mode='train'):
+    def __init__(self, task: dict, data=None, data_I=None, mode='train'):
         self.task = task
-        self.fill_method = fill_method
 
         train_exist = 'train' in self.task["dataset"]["kwargs"]["segments"]
         if train_exist:
@@ -128,7 +127,6 @@ class MetaDatasetDS(MetaTaskDataset):
         rolling_ext_days: int = 0,
         segments: Union[Dict[Text, Tuple], float],
         task_mode: str = "train",
-        fill_method: str = "max",
         data=None,
         data_I=None
     ):
@@ -188,7 +186,7 @@ class MetaDatasetDS(MetaTaskDataset):
         for t in tqdm(task_iter, desc="creating meta tasks"):
             # try:
             self.meta_task_l.append(
-                MetaTaskDS(t, rg.ta, fill_method=fill_method, data=data, data_I=data_I, mode=task_mode)
+                MetaTaskDS(t, data=data, data_I=data_I, mode=task_mode)
             )
             self.task_list.append(t)
             # except ValueError as e:

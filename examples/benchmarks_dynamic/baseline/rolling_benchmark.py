@@ -36,12 +36,6 @@ from qlib.workflow.record_temp import PortAnaRecord, SigAnaRecord
 
 
 class RollingBenchmark:
-    """
-    **NOTE**
-    before running the example, please clean your previous results with following command
-    - `rm -r mlruns`
-
-    """
 
     def __init__(self, data_dir='cn_data', market='csi300', init_data=True,
                  model_type="linear", step=20, alpha="158", horizon=1, rank_label=True) -> None:
