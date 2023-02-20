@@ -42,33 +42,33 @@ Examples:
     <td class="tg-9wq8" rowspan="3">Meta</td>
     <td class="tg-9wq8">Task</td>
     <td class="tg-lboi">qlib/model/meta/task.py</td>
-    <td class="tg-lboi">qlib/contrib/model/meta/task.py</td>
+    <td class="tg-lboi">qlib/contrib/meta/***/task.py</td>
     <td class="tg-lboi">A support set and a query set</td>
   </tr>
   <tr>
     <td class="tg-9wq8">Dataset</td>
     <td class="tg-lboi">qlib/model/meta/dataset.py</td>
-    <td class="tg-lboi">qlib/contrib/model/meta/dataset.py</td>
+    <td class="tg-lboi">qlib/contrib/meta/***/dataset.py</td>
     <td class="tg-lboi">A list of meta-train tasks</td>
   </tr>
   <tr>
     <td class="tg-9wq8">Meta-learner</td>
     <td class="tg-lboi">qlib/model/meta/model.py</td>
-    <td class="tg-lboi">qlib/contrib/model/meta/model.py</td>
+    <td class="tg-lboi">qlib/contrib/meta/***/model.py</td>
     <td class="tg-lboi">A meta-learner for the adjacency matrix</td>
   </tr>
   <tr>
     <td class="tg-9wq8">Interpretation</td>
     <td class="tg-9wq8">-</td>
     <td class="tg-lboi">qlib/model/interpret/base.py</td>
-    <td class="tg-lboi">qlib/contrib/model/interpret/</td>
+    <td class="tg-lboi">qlib/contrib/interpret/</td>
     <td class="tg-lboi">GNNExplainer</td>
   </tr>
   <tr>
     <td class="tg-9wq8">Ensembling</td>
     <td class="tg-9wq8">-</td>
     <td class="tg-lboi">qlib/model/ens/ensemble.py</td>
-    <td class="tg-lboi">qlib/contrib/model/ens/ensemble.py</td>
+    <td class="tg-lboi">qlib/contrib/ens/ensemble.py</td>
     <td class="tg-lboi">Uniform weights</td>
   </tr>
 </tbody>
