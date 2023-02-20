@@ -101,10 +101,10 @@ class ForecastModel(nn.Module):
             else:
                 self.device = torch.device('cuda')
             self.need_permute = need_permute
-        if self.device is not None:
-            self.to(self.device)
         if self.opt is None:
             self.opt = torch.optim.Adam(self.model.parameters(), lr=self.lr)
+        if self.device is not None:
+            self.to(self.device)
 
     def forward(self, X, model=None):
         if model is None:
@@ -119,10 +119,12 @@ class ForecastModel(nn.Module):
 class TeacherNet(ForecastModel):
     def __init__(self, task_config, dim=None, lr=0.001, need_permute=False, model=None,
                  seq_len=60, num_head=6, temperature=4,):
+        super().__init__(task_config=task_config, dim=dim, lr=lr, need_permute=need_permute, model=model)
         self.teacher_x = FeatureAdapter(dim, dim, num_head, temperature)
         self.teacher_y = LabelAdapter(dim, seq_len, num_head, temperature)
-        super().__init__(task_config=task_config, dim=dim, lr=lr, need_permute=need_permute, model=model)
         self.meta_params = list(self.teacher_x.parameters()) + list(self.teacher_y.parameters())
+        if self.device is not None:
+            self.to(self.device)
 
     def forward(self, X, model=None, transform=False):
         if transform:
@@ -132,10 +134,12 @@ class TeacherNet(ForecastModel):
 
 class CoG(ForecastModel):
     def __init__(self, task_config, dim=None, lr=0.001, need_permute=False, model=None):
+        super().__init__(task_config=task_config, dim=dim, lr=lr, need_permute=need_permute, model=model)
         self.mask = nn.ParameterList(
             [nn.Parameter(torch.ones_like(param.data) * 3) for param in self.model.parameters()])
-        super().__init__(task_config=task_config, dim=dim, lr=lr, need_permute=need_permute, model=model)
         self.meta_params = self.mask.parameters()
+        if self.device is not None:
+            self.to(self.device)
 
     def forward(self, X, fmodel=None, fmask=None):
         new_params = []
