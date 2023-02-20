@@ -23,9 +23,10 @@ from qlib.data.dataset.handler import DataHandlerLP
 DIRNAME = Path(__file__).absolute().resolve().parent
 sys.path.append(str(DIRNAME))
 sys.path.append(str(DIRNAME.parent.parent.parent))
-from src.model import MetaModelDS
-from src.dataset import MetaDatasetDS
-from util import *
+
+from qlib.contrib.meta.incremental.model import MetaModelInc
+from qlib.contrib.meta.incremental.dataset import MetaDatasetInc
+from qlib.contrib.meta.incremental.utils import *
 from examples.benchmarks_dynamic.baseline.benchmark import Benchmark
 from examples.benchmarks_dynamic.baseline.rolling_benchmark import RollingBenchmark
 
@@ -40,7 +41,8 @@ class Incremental:
     """
     def __init__(self, data_dir='cn_data', market='csi300', horizon=1, alpha=360, step=20, rank_label=False,
                  forecast_model="GRU", tag='', lr=0.01, lr_model=0.001, reg=0.5,
-                 num_head=8, tau=10, first_order=True, adapt_x=True, adapt_y=True, naive=False):
+                 num_head=8, tau=10, first_order=True, adapt_x=True, adapt_y=True, naive=False,
+                 begin_valid_epoch=20):
         """
         :param data_dir: str
             source data dictionary under '~/.qlib/qlib_data/'
@@ -76,6 +78,8 @@ class Incremental:
             whether adapt labels
         :param naive:
             if True, degrade to naive incremental baseline
+        :param begin_valid_epoch:
+            accelerate offline training by leaving out some valid epochs
         """
         self.data_dir = data_dir
         self.market = market
@@ -118,6 +122,9 @@ class Incremental:
                                    horizon=self.horizon, alpha=self.alpha, rank_label=self.rank_label,
                                    init_data=False)
         self.task = self.rb.basic_task()
+        self.begin_valid_epoch = begin_valid_epoch
+        if self.forecast_model == 'Transformer' and self.market == 'csi500':
+            self.begin_valid_epoch = 40
 
     @property
     def meta_exp_name(self):
@@ -167,16 +174,14 @@ class Incremental:
         )
         if self.forecast_model == 'MLP' and self.alpha == 158:
             kwargs.update(task_mode='test')
-        md = MetaDatasetDS(data=data, **kwargs)
-        md.meta_task_l = preprocess(md.meta_task_l, d_feat=self.d_feat,
+        md_offline = MetaDatasetInc(data=data, **kwargs)
+        md_offline.meta_task_l = preprocess(md_offline.meta_task_l, d_feat=self.d_feat,
                                     is_mlp=self.forecast_model == 'MLP', alpha=self.alpha,
                                     step=self.step,
                                     H=self.horizon if self.data_dir == 'us_data' else (1 + self.horizon),
                                     need_flatten=self.need_flatten)
-        phases = ["train", "test"]
-        meta_tasks_train, meta_tasks_valid = md.prepare_tasks(phases)
 
-        self.L = meta_tasks_train[0].get_meta_input()['X_test'].shape[1]
+        self.L = md_offline.meta_task_l[0].get_meta_input()['X_test'].shape[1]
         if self.need_flatten:
             # self.L = self.L // self.d_feat
             self.d_feat = self.L
@@ -198,14 +203,13 @@ class Incremental:
             data_I = ds.prepare("train", col_set=["feature", "label"], data_key=DataHandlerLP.DK_I)
         else:
             data_I = None
-        md2 = MetaDatasetDS(data=data, data_I=data_I, **kwargs)
-        md2.meta_task_l = preprocess(md2.meta_task_l, d_feat=self.d_feat,
+        md_online = MetaDatasetInc(data=data, data_I=data_I, **kwargs)
+        md_online.meta_task_l = preprocess(md_online.meta_task_l, d_feat=self.d_feat,
                                      is_mlp=self.forecast_model == 'MLP', alpha=self.alpha,
                                      step=self.step,
                                      H=self.horizon if self.data_dir == 'us_data' else (1 + self.horizon),
                                      need_flatten=self.need_flatten)
-        meta_tasks_test = md2.prepare_tasks('test')
-        return meta_tasks_train, meta_tasks_valid, meta_tasks_test
+        return md_offline, md_online
 
     def offline_training(self, seed=43):
         """
@@ -221,16 +225,16 @@ class Incremental:
             model = None
 
         # with R.start(experiment_name=self.meta_exp_name):
-        mm = MetaModelDS(self.task,
+        mm = MetaModelInc(self.task,
                          is_rnn=self.is_rnn, d_feat=self.d_feat, L=self.L,
                          alpha=self.alpha,
                          lr=self.lr, lr_model=self.lr_model,
                          naive=self.naive,
                          adapt_x=self.adapt_x, adapt_y=self.adapt_y, reg=self.reg,
                          first_order=self.first_order, num_head=self.num_head, temperature=self.temperature,
-                         pretrained_model=model)
+                         pretrained_model=model, begin_valid_epoch=self.begin_valid_epoch)
         if not (self.naive and model is not None):
-            mm.fit(self.meta_tasks_train, self.meta_tasks_valid)
+            mm.fit(self.meta_dataset_offline)
         if self.naive and model is None:
             bm = Benchmark(data_dir=self.data_dir, market=self.market, model_type=self.forecast_model, alpha=self.alpha,
                            rank_label=self.rank_label)
@@ -247,9 +251,9 @@ class Incremental:
         if meta_model is None:
             exp = R.get_exp(experiment_name="MLP_alpha158_horizon1_step20_normTrue_1668074284")
             rec = exp.list_recorders(rtype=exp.RT_L)[0]
-            meta_model: MetaModelDS = rec.load_object("model")
+            meta_model: MetaModelInc = rec.load_object("model")
         else:
-            meta_model: MetaModelDS = meta_model
+            meta_model: MetaModelInc = meta_model
 
         step = self.step
         gen = RollingGen(step=step, rtype=RollingGen.ROLL_SD)
@@ -267,7 +271,7 @@ class Incremental:
                 label_all = label_all.loc[test_begin: test_end]
             label_all = label_all.dropna(axis=0)
             mlp158 = self.forecast_model == 'MLP' and self.alpha == 158
-            pred_y_all, ic = meta_model.infer(meta_tasks_test)
+            pred_y_all, ic = meta_model.inference(meta_tasks_test)
             if mlp158:
                 pred_y_all = pred_y_all.loc[test_begin: test_end]
                 label_all = label_all.loc[pred_y_all.index]
@@ -315,7 +319,7 @@ class Incremental:
         return rec
 
     def run_all(self):
-        self.meta_tasks_train, self.meta_tasks_valid, meta_tasks_test = self.dump_data()
+        self.meta_dataset_offline, self.meta_dataset_online = self.dump_data()
         all_metrics = {k: [] for k in [
             # 'rmse', 'mae',
             'IC', 'ICIR', 'Rank IC', 'Rank ICIR',

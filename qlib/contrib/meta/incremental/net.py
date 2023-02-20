@@ -74,9 +74,8 @@ class FeatureAdapter(nn.Module):
         return X + self.net(X)
 
 
-class TeacherNet(nn.Module):
-    def __init__(self, task_config, num_head=6, temperature=4,
-                 dim=None, seq_len=60, lr=0.001, need_permute=False, model=None):
+class ForecastModel(nn.Module):
+    def __init__(self, task_config, dim=None, lr=0.001, need_permute=False, model=None):
         super().__init__()
         self.lr = lr
         # self.lr = task_config["model"]['kwargs']['lr']
@@ -102,21 +101,49 @@ class TeacherNet(nn.Module):
             else:
                 self.device = torch.device('cuda')
             self.need_permute = need_permute
-        self.teacher_x = FeatureAdapter(dim, dim, num_head, temperature)
-        self.teacher_y = LabelAdapter(dim, seq_len, num_head, temperature)
         if self.device is not None:
             self.to(self.device)
-        self.meta_params = list(self.teacher_x.parameters()) + list(self.teacher_y.parameters())
         if self.opt is None:
             self.opt = torch.optim.Adam(self.model.parameters(), lr=self.lr)
 
-    def forward(self, X, model=None, transform=False, mask_y=None):
+    def forward(self, X, model=None):
         if model is None:
             model = self.model
-        if transform:
-            X = self.teacher_x(X)
         if X.dim() == 3:
             X = X.permute(0, 2, 1).reshape(len(X), -1) if self.need_permute else X.reshape(len(X), -1)
         y_hat = model(X)
         y_hat = y_hat.view(-1)
         return y_hat
+
+
+class TeacherNet(ForecastModel):
+    def __init__(self, task_config, dim=None, lr=0.001, need_permute=False, model=None,
+                 seq_len=60, num_head=6, temperature=4,):
+        self.teacher_x = FeatureAdapter(dim, dim, num_head, temperature)
+        self.teacher_y = LabelAdapter(dim, seq_len, num_head, temperature)
+        super().__init__(task_config=task_config, dim=dim, lr=lr, need_permute=need_permute, model=model)
+        self.meta_params = list(self.teacher_x.parameters()) + list(self.teacher_y.parameters())
+
+    def forward(self, X, model=None, transform=False):
+        if transform:
+            X = self.teacher_x(X)
+        return super().forward(X, model)
+
+
+class CoG(ForecastModel):
+    def __init__(self, task_config, dim=None, lr=0.001, need_permute=False, model=None):
+        self.mask = nn.ParameterList(
+            [nn.Parameter(torch.ones_like(param.data) * 3) for param in self.model.parameters()])
+        super().__init__(task_config=task_config, dim=dim, lr=lr, need_permute=need_permute, model=model)
+        self.meta_params = self.mask.parameters()
+
+    def forward(self, X, fmodel=None, fmask=None):
+        new_params = []
+        if fmodel is None:
+            fmodel = self.model
+        else:
+            for i in range(len(fmask)):
+                new_params.append(fmodel.fast_params[i] * torch.sigmoid(fmask[i]))
+            fmodel.update_params(new_params)
+        return super().forward(X, model=fmodel)
+

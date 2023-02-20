@@ -18,6 +18,7 @@ class DifferentiableOptimizer(optim.DifferentiableOptimizer):
         params: _typing.Iterable[_torch.Tensor] = None,
         override: _typing.Optional[_OverrideType] = None,
         grad_callback: _typing.Optional[_GradCallbackType] = None,
+        first_order=False,
         **kwargs
     ) -> _typing.Iterable[_torch.Tensor]:
         r"""Perform a model update.
@@ -125,10 +126,11 @@ class DifferentiableOptimizer(optim.DifferentiableOptimizer):
         new_params = params[:]
         for group, mapping in zip(self.param_groups, self._group_to_param_list):
             for p, index in zip(group['params'], mapping):
+                if not first_order:
                 # if self._track_higher_grads:
-                new_params[index] = p
-                # else:
-                #     new_params[index] = p.detach().requires_grad_()
+                    new_params[index] = p
+                else:
+                    new_params[index] = p.detach().requires_grad_()
 
         if self._fmodel is not None:
             self._fmodel.update_params(new_params)

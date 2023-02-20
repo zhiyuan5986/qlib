@@ -4,7 +4,7 @@ from pathlib import Path
 import torch
 from qlib.utils import init_instance_by_config
 from qlib.workflow import R, Experiment
-from src.model import MetaModelDS
+from qlib.contrib.meta.incremental.model import MetaCoG
 import fire
 import sys
 
@@ -31,12 +31,12 @@ class CML(Incremental):
         model = benchmark.get_fitted_model(f"_{seed}")
 
         # with R.start(experiment_name=self.meta_exp_name):
-        mm = MetaModelDS(self.task,
+        mm = MetaCoG(self.task,
                          is_rnn=self.is_rnn, d_feat=self.d_feat,
                          alpha=self.alpha, lr=self.lr,
                          first_order=self.first_order,
                          pretrained_model=model)
-        mm.fit(self.meta_tasks_train, self.meta_tasks_valid)
+        mm.fit(self.meta_dataset_offline)
 
         if model is None:
             with R.start(experiment_name=benchmark.exp_name + f"_{seed}"):

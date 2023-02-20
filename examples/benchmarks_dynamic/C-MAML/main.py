@@ -10,15 +10,16 @@ from qlib.workflow.task.gen import RollingGen
 from qlib.utils import init_instance_by_config
 from qlib.data.dataset.handler import DataHandlerLP
 
-from src.model import MetaModelDS
 import fire
 import sys
 DIRNAME = Path(__file__).absolute().resolve().parent
 sys.path.append(str(DIRNAME))
 sys.path.append(str(DIRNAME.parent.parent.parent))
 from examples.benchmarks_dynamic.baseline.benchmark import Benchmark
-from examples.benchmarks_dynamic.incremental.main import Incremental, preprocess
-from examples.benchmarks_dynamic.incremental.src.dataset import MetaDatasetDS
+from examples.benchmarks_dynamic.incremental.main import Incremental
+from qlib.contrib.meta.incremental.utils import preprocess
+from qlib.contrib.meta.incremental.dataset import MetaDatasetInc
+from qlib.contrib.meta.incremental.model import CMAML
 
 
 class OKASA(Incremental):
@@ -81,14 +82,12 @@ class OKASA(Incremental):
         )
         if self.forecast_model == 'MLP' and self.alpha == 158:
             kwargs.update(task_mode='test')
-        md = MetaDatasetDS(data=data, **kwargs)
-        md.meta_task_l = preprocess(md.meta_task_l, d_feat=self.d_feat,
+        md_offline = MetaDatasetInc(data=data, **kwargs)
+        md_offline.meta_task_l = preprocess(md_offline.meta_task_l, d_feat=self.d_feat,
                                      is_mlp=self.forecast_model == 'MLP', alpha=self.alpha,
                                      step=self.step, H=self.horizon if self.data_dir == 'us_data' else (1+self.horizon),
                                     need_permute=not self.forecast_model in ['TCN'])
-        phases = ["train", "test"]
-        meta_tasks_train, meta_tasks_valid = md.prepare_tasks(phases)
-        self.L = meta_tasks_train[0].get_meta_input()['X_test'].shape[1]
+        self.L = md_offline.meta_task_l[0].get_meta_input()['X_test'].shape[1]
 
         test_begin = segments["valid"][0]
         # train_end = gen.ta.get(gen.ta.align_idx(train_begin) + gen.step - 1)
@@ -109,13 +108,12 @@ class OKASA(Incremental):
             data_I = ds.prepare("train", col_set=["feature", "label"], data_key=DataHandlerLP.DK_I)
         else:
             data_I = None
-        md2 = MetaDatasetDS(data=data, data_I=data_I, **kwargs)
-        md2.meta_task_l = preprocess(md2.meta_task_l, d_feat=self.d_feat,
+        md_online = MetaDatasetInc(data=data, data_I=data_I, **kwargs)
+        md_online.meta_task_l = preprocess(md_online.meta_task_l, d_feat=self.d_feat,
                                      is_mlp=self.forecast_model == 'MLP', alpha=self.alpha,
                                      step=self.step, H=self.horizon if self.data_dir == 'us_data' else (1+self.horizon),
                                     need_permute=not self.forecast_model in ['TCN'])
-        meta_tasks_test = md2.prepare_tasks('test')
-        return meta_tasks_train, meta_tasks_valid, meta_tasks_test
+        return md_offline, md_online
 
 
     def offline_training(self, seed=43):
@@ -132,12 +130,12 @@ class OKASA(Incremental):
             model = None
 
         # with R.start(experiment_name=self.meta_exp_name):
-        mm = MetaModelDS(self.task, sample_num=8000 if self.market == 'csi500' else 5000,
-                         is_seq=self.is_rnn, d_feat=self.d_feat,
-                         alpha=self.alpha, lr=0.01,
-                         first_order=self.first_order, num_head=self.num_head, temperature=self.temperature,
-                         pretrained_model=model)
-        mm.fit(self.meta_tasks_train, self.meta_tasks_valid)
+        mm = CMAML(self.task, sample_num=8000 if self.market == 'csi500' else 5000,
+                   is_seq=self.is_rnn, d_feat=self.d_feat,
+                   alpha=self.alpha, lr=0.01,
+                   first_order=self.first_order, num_head=self.num_head, temperature=self.temperature,
+                   pretrained_model=model)
+        mm.fit(self.meta_dataset_offline)
             # R.save_objects(model=mm)
         return mm
 
