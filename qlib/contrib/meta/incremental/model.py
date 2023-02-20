@@ -2,6 +2,9 @@ import copy
 from collections import defaultdict
 
 import numpy as np
+from qlib.model.meta import MetaTaskDataset
+
+from qlib.model.meta.model import MetaTaskModel
 
 from tqdm import tqdm
 import pandas as pd
@@ -10,24 +13,12 @@ from torch import optim
 import torch.nn.functional as F
 import higher
 
+from .utils import override_state
+from .dataset import MetaDatasetInc
 from .net import TeacherNet
 
 
-def override_state(groups, new_opt):
-    saved_groups = new_opt.param_groups
-    id_map = {old_id: p for old_id, p in zip(range(len(saved_groups[0]['params'])), groups[0]['params'])}
-    state = defaultdict(dict)
-    for k, v in new_opt.state[0].items():
-        if k in id_map:
-            param = id_map[k]
-            for _k, _v in v.items():
-                state[param][_k] = _v.detach() if isinstance(_v, torch.Tensor) else _v
-        else:
-            state[k] = v
-    return state
-
-
-class MetaModelDS:
+class MetaModelInc(MetaTaskModel):
     def __init__(
             self,
             task_config,
@@ -36,7 +27,7 @@ class MetaModelDS:
             d_feat=6, L=60, alpha=360,
             num_head=6, temperature=4,
             pretrained_model=None,
-            naive=False,
+            naive=False, begin_valid_epoch=0,
     ):
         self.task_config = task_config
         self.lr = lr
@@ -63,12 +54,13 @@ class MetaModelDS:
         self.opt = optim.Adam(self.tn.meta_params, lr=self.lr)
         # self.opt = optim.Adam([{'params': self.tn.teacher_y.parameters(), 'lr': self.lr_y},
         #                        {'params': self.tn.teacher_x.parameters()}], lr=self.lr)
-        self.begin_valid_epoch = 10
+        self.begin_valid_epoch = begin_valid_epoch
 
-    def fit(self, meta_tasks_train, meta_tasks_valid):
+
+    def fit(self, meta_dataset: MetaDatasetInc):
 
         phases = ["train", "test"]
-        meta_tasks_l = [meta_tasks_train, meta_tasks_valid]
+        meta_tasks_l = meta_dataset.prepare_tasks(phases)
 
         self.cnt = 0
         self.tn.train()
@@ -227,7 +219,8 @@ class MetaModelDS:
             mse = self.tn.criterion(pred, meta_input['y_test'].to(self.tn.device)).item()
         return pred.detach().cpu().numpy(), mse
 
-    def infer(self, meta_tasks_test):
+    def inference(self, meta_dataset: MetaTaskDataset):
+        meta_tasks_test = meta_dataset.prepare_tasks('test')
         self.tn.train()
         pred_y_all, ic = self.run_epoch('online', meta_tasks_test)
         return pred_y_all, ic

@@ -33,7 +33,7 @@ class LabelAdaptHead(nn.Module):
 
 
 class LabelAdapter(nn.Module):
-    def __init__(self, in_dim, L, num_head=4, temperature=4, hid_dim=64):
+    def __init__(self, in_dim, L, num_head=4, temperature=4, hid_dim=32):
         super().__init__()
         self.num_head = num_head
         self.linear = nn.Linear(in_dim * L, hid_dim)
