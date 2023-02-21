@@ -9,6 +9,11 @@ import sys
 import pandas as pd
 import fire
 
+
+DIRNAME = Path(__file__).absolute().resolve().parent
+sys.path.append(str(DIRNAME))
+sys.path.append(str(DIRNAME.parent.parent.parent))
+
 import qlib
 from qlib.workflow.record_temp import SigAnaRecord, PortAnaRecord
 from qlib.data.dataset import Dataset, TSDataSampler
@@ -19,10 +24,6 @@ from qlib.workflow import R, Experiment
 from qlib.tests.data import GetData
 
 from qlib.data.dataset.handler import DataHandlerLP
-
-DIRNAME = Path(__file__).absolute().resolve().parent
-sys.path.append(str(DIRNAME))
-sys.path.append(str(DIRNAME.parent.parent.parent))
 
 from qlib.contrib.meta.incremental.model import MetaModelInc
 from qlib.contrib.meta.incremental.dataset import MetaDatasetInc
@@ -336,7 +337,7 @@ class Incremental:
             mm = self.offline_training(seed=43 + i)
             train_time.append(time.time() - start_time)
             start_time = time.time()
-            rec = self.online_training(meta_tasks_test, mm)
+            rec = self.online_training(self.meta_dataset_online, mm)
             test_time.append(time.time() - start_time)
             # exp = R.get_exp(experiment_name=self.infer_exp_name)
             # rec = exp.list_recorders(rtype=exp.RT_L)[0]
