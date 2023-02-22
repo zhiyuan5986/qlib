@@ -55,10 +55,7 @@ def get_data_from_seg(seg, data, test=False):
 
 def override_state(groups, new_opt):
     saved_groups = new_opt.param_groups
-    id_map = {
-        old_id: p
-        for old_id, p in zip(range(len(saved_groups[0]["params"])), groups[0]["params"])
-    }
+    id_map = {old_id: p for old_id, p in zip(range(len(saved_groups[0]["params"])), groups[0]["params"])}
     state = defaultdict(dict)
     for k, v in new_opt.state[0].items():
         if k in id_map:
@@ -87,14 +84,7 @@ def _mask_mlp158(meta_input):
 
 
 def preprocess(
-    task_list,
-    d_feat=6,
-    is_mlp=False,
-    alpha=360,
-    step=20,
-    H=1,
-    need_permute=True,
-    need_flatten=False,
+    task_list, d_feat=6, is_mlp=False, alpha=360, step=20, H=1, need_permute=True, need_flatten=False,
 ):
     skip = []
     for i, task in enumerate(task_list):
@@ -106,9 +96,7 @@ def preprocess(
                 if isinstance(meta_input[k], np.ndarray):
                     meta_input[k] = torch.tensor(meta_input[k], dtype=torch.float32)
                 else:
-                    meta_input[k] = torch.tensor(
-                        meta_input[k].to_numpy(), dtype=torch.float32
-                    )
+                    meta_input[k] = torch.tensor(meta_input[k].to_numpy(), dtype=torch.float32)
         # if task.processed_meta_input['y_test'].shape[0] == 0:
         #     skip.append(i)
         if is_mlp and alpha == 158:
@@ -159,16 +147,8 @@ def _additional_info(meta_input: dict, key_prefix="train"):
         X = meta_input["X_train" if key_prefix == "train" else "X_test"][mask]
         # mu.append(X.mean(0, keepdim=True).repeat([len(X)] + [1] * (X.dim()-1)))
         # std.append(X.std(0, keepdim=True).repeat([len(X)] + [1] * (X.dim()-1)))
-        mu.append(
-            X.mean(1, keepdim=True)
-            .mean(0, keepdim=True)
-            .repeat([len(X)] + [1] * (X.dim() - 1))
-        )
-        std.append(
-            X.std(1, keepdim=True)
-            .mean(0, keepdim=True)
-            .repeat([len(X)] + [1] * (X.dim() - 1))
-        )
+        mu.append(X.mean(1, keepdim=True).mean(0, keepdim=True).repeat([len(X)] + [1] * (X.dim() - 1)))
+        std.append(X.std(1, keepdim=True).mean(0, keepdim=True).repeat([len(X)] + [1] * (X.dim() - 1)))
     mu = torch.cat(mu, 0)
     std = torch.cat(std, 0)
 

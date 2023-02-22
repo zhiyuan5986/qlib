@@ -88,15 +88,9 @@ class DifferentiableOptimizer(optim.DifferentiableOptimizer):
 
         # if isinstance(input, _torch.Tensor):
         # This allows us to gracefully deal with cases where params are frozen.
-        grad_targets = [
-            p if p.requires_grad else _torch.tensor([], requires_grad=True)
-            for p in params
-        ]
+        grad_targets = [p if p.requires_grad else _torch.tensor([], requires_grad=True) for p in params]
         all_grads = _torch.autograd.grad(
-            input,
-            grad_targets,
-            create_graph=self._track_higher_grads,
-            allow_unused=True,  # boo
+            input, grad_targets, create_graph=self._track_higher_grads, allow_unused=True,  # boo
         )
         if grad_callback is not None:
             all_grads = grad_callback(all_grads)
@@ -137,7 +131,5 @@ class DifferentiableOptimizer(optim.DifferentiableOptimizer):
 
 
 setattr(
-    sys.modules["higher.optim"].__dict__["DifferentiableOptimizer"],
-    "step",
-    DifferentiableOptimizer.step,
+    sys.modules["higher.optim"].__dict__["DifferentiableOptimizer"], "step", DifferentiableOptimizer.step,
 )

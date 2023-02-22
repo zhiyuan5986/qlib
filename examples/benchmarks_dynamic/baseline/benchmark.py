@@ -25,23 +25,14 @@ from qlib.workflow.record_temp import PortAnaRecord, SigAnaRecord, SignalRecord
 
 
 class Benchmark:
-    def __init__(
-        self,
-        data_dir="cn_data",
-        market="csi300",
-        model_type="linear",
-        alpha="158",
-        rank_label=True,
-    ) -> None:
+    def __init__(self, data_dir="cn_data", market="csi300", model_type="linear", alpha="158", rank_label=True,) -> None:
         self.data_dir = data_dir
         self.market = market
         self.step = 20
         self.horizon = 1
         self.model_type = model_type
         self.alpha = alpha
-        self.exp_name = (
-            f"{model_type}_{self.data_dir}_{self.market}_{self.alpha}_rank{rank_label}"
-        )
+        self.exp_name = f"{model_type}_{self.data_dir}_{self.market}_{self.alpha}_rank{rank_label}"
         self.rank_label = rank_label
 
     def basic_task(self):
@@ -54,9 +45,7 @@ class Benchmark:
                 / "workflow_config_lightgbm_Alpha{}.yaml".format(self.alpha)
             )
             # dump the processed data on to disk for later loading to speed up the processing
-            filename = "lightgbm_alpha{}_handler_horizon{}.pkl".format(
-                self.alpha, self.horizon
-            )
+            filename = "lightgbm_alpha{}_handler_horizon{}.pkl".format(self.alpha, self.horizon)
         elif self.model_type == "linear":
             conf_path = (
                 DIRNAME.parent.parent
@@ -64,28 +53,19 @@ class Benchmark:
                 / "Linear"
                 / "workflow_config_linear_Alpha{}.yaml".format(self.alpha)
             )
-            filename = "linear_alpha{}_handler_horizon{}.pkl".format(
-                self.alpha, self.horizon
-            )
+            filename = "linear_alpha{}_handler_horizon{}.pkl".format(self.alpha, self.horizon)
         elif self.model_type == "mlp":
             conf_path = (
-                DIRNAME.parent.parent
-                / "benchmarks"
-                / "MLP"
-                / "workflow_config_mlp_Alpha{}.yaml".format(self.alpha)
+                DIRNAME.parent.parent / "benchmarks" / "MLP" / "workflow_config_mlp_Alpha{}.yaml".format(self.alpha)
             )
             # dump the processed data on to disk for later loading to speed up the processing
-            filename = "mlp_alpha{}_handler_horizon{}.pkl".format(
-                self.alpha, self.horizon
-            )
+            filename = "mlp_alpha{}_handler_horizon{}.pkl".format(self.alpha, self.horizon)
         else:
             conf_path = (
                 DIRNAME.parent.parent
                 / "benchmarks"
                 / self.model_type
-                / "workflow_config_{}_Alpha{}.yaml".format(
-                    self.model_type.lower(), self.alpha
-                )
+                / "workflow_config_{}_Alpha{}.yaml".format(self.model_type.lower(), self.alpha)
             )
             filename = "alpha{}_handler_horizon{}.pkl".format(self.alpha, self.horizon)
         filename = f"{self.data_dir}_{self.market}_rank{self.rank_label}_{filename}"
@@ -99,9 +79,7 @@ class Benchmark:
         ]
 
         if self.market != "csi300":
-            conf["task"]["dataset"]["kwargs"]["handler"]["kwargs"][
-                "instruments"
-            ] = self.market
+            conf["task"]["dataset"]["kwargs"]["handler"]["kwargs"]["instruments"] = self.market
             if self.data_dir == "us_data":
                 conf["task"]["dataset"]["kwargs"]["handler"]["kwargs"]["label"] = [
                     "Ref($close, -{}) / $close - 1".format(self.horizon)
@@ -113,12 +91,7 @@ class Benchmark:
         elif self.market == "csi500":
             batch_size = 8000
 
-        for k, v in {
-            "early_stop": 8,
-            "batch_size": batch_size,
-            "lr": 0.001,
-            "seed": None,
-        }.items():
+        for k, v in {"early_stop": 8, "batch_size": batch_size, "lr": 0.001, "seed": None,}.items():
             if k in conf["task"]["model"]["kwargs"]:
                 conf["task"]["model"]["kwargs"][k] = v
         if conf["task"]["model"]["class"] == "TransformerModel":
@@ -129,9 +102,7 @@ class Benchmark:
 
         if not h_path.exists():
             h_conf = task["dataset"]["kwargs"]["handler"]
-            if not self.rank_label and not (
-                self.model_type == "gbdt" or self.alpha == 158
-            ):
+            if not self.rank_label and not (self.model_type == "gbdt" or self.alpha == 158):
                 proc = h_conf["kwargs"]["learn_processors"][-1]
                 if (
                     isinstance(proc, str)
@@ -139,9 +110,7 @@ class Benchmark:
                     or isinstance(proc, dict)
                     and proc["class"] == "CSRankNorm"
                 ):
-                    h_conf["kwargs"]["learn_processors"] = h_conf["kwargs"][
-                        "learn_processors"
-                    ][:-1]
+                    h_conf["kwargs"]["learn_processors"] = h_conf["kwargs"]["learn_processors"][:-1]
                     print("Remove CSRankNorm")
                     h_conf["kwargs"]["learn_processors"].append(
                         {"class": "CSZScoreNorm", "kwargs": {"fields_group": "label"}}
@@ -160,9 +129,7 @@ class Benchmark:
         task = self.basic_task()
         try:
             R.set_uri("../baseline/mlruns")
-            rec = list(
-                R.list_recorders(experiment_name=self.exp_name + suffix).values()
-            )[0]
+            rec = list(R.list_recorders(experiment_name=self.exp_name + suffix).values())[0]
             model = rec.load_object("params.pkl")
             R.set_uri("./mlruns")
             print("Load pretrained model.")
@@ -178,9 +145,7 @@ class Benchmark:
 
     def run_all(self):
         if self.data_dir == "cn_data":
-            GetData().qlib_data(
-                target_dir="~/.qlib/qlib_data/cn_data", exists_skip=True
-            )
+            GetData().qlib_data(target_dir="~/.qlib/qlib_data/cn_data", exists_skip=True)
             auto_init()
         else:
             init(provider_uri="~/.qlib/qlib_data/" + self.data_dir)

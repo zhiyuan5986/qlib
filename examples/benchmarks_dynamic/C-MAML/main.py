@@ -61,9 +61,7 @@ class OKASA(Incremental):
             segments["test"][1],
         )
         ds = init_instance_by_config(t["dataset"], accept_types=Dataset)
-        data = ds.prepare(
-            "train", col_set=["feature", "label"], data_key=DataHandlerLP.DK_L
-        )
+        data = ds.prepare("train", col_set=["feature", "label"], data_key=DataHandlerLP.DK_L)
         if t["dataset"]["class"] == "TSDatasetH":
             data.config(fillna_type="ffill+bfill")  # process nan brought by dataloader
             # self.L = rolling_task['dataset']['kwargs']['step_len']
@@ -71,13 +69,8 @@ class OKASA(Incremental):
         #     data = None
 
         rolling_task = self.rb.basic_task()
-        if (
-            "pt_model_kwargs" in rolling_task["model"]["kwargs"]
-            and rolling_task["model"]["class"] != "DNNModelPytorch"
-        ):
-            self.d_feat = rolling_task["model"]["kwargs"]["pt_model_kwargs"][
-                "input_dim"
-            ]
+        if "pt_model_kwargs" in rolling_task["model"]["kwargs"] and rolling_task["model"]["class"] != "DNNModelPytorch":
+            self.d_feat = rolling_task["model"]["kwargs"]["pt_model_kwargs"]["input_dim"]
         elif "d_feat" in rolling_task["model"]["kwargs"]:
             self.d_feat = rolling_task["model"]["kwargs"]["d_feat"]
         else:
@@ -88,9 +81,7 @@ class OKASA(Incremental):
         segments = rolling_task["dataset"]["kwargs"]["segments"]
         train_begin = segments["train"][0]
         train_end = gen.ta.get(gen.ta.align_idx(train_begin) + gen.step - 1)
-        test_begin = gen.ta.get(
-            gen.ta.align_idx(train_begin) + gen.step - 1 + trunc_days
-        )
+        test_begin = gen.ta.get(gen.ta.align_idx(train_begin) + gen.step - 1 + trunc_days)
         test_end = segments["valid"][1]
         test_end = gen.ta.get(gen.ta.align_idx(test_end) - gen.step)
         # extra_begin = gen.ta.get(gen.ta.align_idx(train_end) + 1)
@@ -143,9 +134,7 @@ class OKASA(Incremental):
         kwargs.update(task_tpl=rolling_task, segments=0.0)
         if self.forecast_model == "MLP" and self.alpha == 158:
             kwargs.update(task_mode="test")
-            data_I = ds.prepare(
-                "train", col_set=["feature", "label"], data_key=DataHandlerLP.DK_I
-            )
+            data_I = ds.prepare("train", col_set=["feature", "label"], data_key=DataHandlerLP.DK_I)
         else:
             data_I = None
         md_online = MetaDatasetInc(data=data, data_I=data_I, **kwargs)

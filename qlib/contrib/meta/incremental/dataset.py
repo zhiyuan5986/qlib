@@ -26,60 +26,36 @@ class MetaTaskInc:
         train_exist = "train" in self.task["dataset"]["kwargs"]["segments"]
         extra_exist = "extra" in self.task["dataset"]["kwargs"]["segments"]
         if train_exist:
-            train_segs = [
-                str(dt) for dt in self.task["dataset"]["kwargs"]["segments"]["train"]
-            ]
+            train_segs = [str(dt) for dt in self.task["dataset"]["kwargs"]["segments"]["train"]]
         if extra_exist:
-            extra_segs = [
-                str(dt) for dt in self.task["dataset"]["kwargs"]["segments"]["extra"]
-            ]
-        test_segs = [
-            str(dt) for dt in self.task["dataset"]["kwargs"]["segments"]["test"]
-        ]
+            extra_segs = [str(dt) for dt in self.task["dataset"]["kwargs"]["segments"]["extra"]]
+        test_segs = [str(dt) for dt in self.task["dataset"]["kwargs"]["segments"]["test"]]
         if isinstance(data, TSDataSampler):
             if train_exist:
                 d_train, d_train_idx = get_data_and_idx(data, train_segs)
             if extra_exist:
                 d_extra, d_extra_idx = get_data_and_idx(data, extra_segs)
             d_test, d_test_idx = get_data_and_idx(data, test_segs)
-            self.processed_meta_input = dict(
-                X_test=d_test[:, :, 0:-1],
-                y_test=d_test[:, -1, -1],
-                test_idx=d_test_idx,
-            )
+            self.processed_meta_input = dict(X_test=d_test[:, :, 0:-1], y_test=d_test[:, -1, -1], test_idx=d_test_idx,)
             if train_exist:
                 self.processed_meta_input.update(
-                    X_train=d_train[:, :, 0:-1],
-                    y_train=d_train[:, -1, -1],
-                    train_idx=d_train_idx,
+                    X_train=d_train[:, :, 0:-1], y_train=d_train[:, -1, -1], train_idx=d_train_idx,
                 )
             if extra_exist:
                 self.processed_meta_input.update(
-                    X_extra=d_extra[:, :, 0:-1],
-                    y_extra=d_extra[:, -1, -1],
-                    extra_idx=d_extra_idx,
+                    X_extra=d_extra[:, :, 0:-1], y_extra=d_extra[:, -1, -1], extra_idx=d_extra_idx,
                 )
         else:
             if data is None:
                 ds = init_instance_by_config(self.task["dataset"], accept_types=Dataset)
                 if train_exist:
-                    d_train = ds.prepare(
-                        "train",
-                        col_set=["feature", "label"],
-                        data_key=DataHandlerLP.DK_L,
-                    )
+                    d_train = ds.prepare("train", col_set=["feature", "label"], data_key=DataHandlerLP.DK_L,)
                 if extra_exist:
-                    d_extra = ds.prepare(
-                        "extra",
-                        col_set=["feature", "label"],
-                        data_key=DataHandlerLP.DK_L,
-                    )
+                    d_extra = ds.prepare("extra", col_set=["feature", "label"], data_key=DataHandlerLP.DK_L,)
                 d_test = ds.prepare(
                     "test",
                     col_set=["feature", "label"],
-                    data_key=DataHandlerLP.DK_L
-                    if mode == "train"
-                    else DataHandlerLP.DK_I,
+                    data_key=DataHandlerLP.DK_L if mode == "train" else DataHandlerLP.DK_I,
                 )
                 if mode == "test":
                     assert (
@@ -94,21 +70,15 @@ class MetaTaskInc:
                     data = data_I
                 d_test = get_data_from_seg(test_segs, data, True)
             self.processed_meta_input = dict(
-                X_test=d_test["feature"],
-                y_test=d_test["label"].iloc[:, 0],
-                test_idx=d_test["label"].index,
+                X_test=d_test["feature"], y_test=d_test["label"].iloc[:, 0], test_idx=d_test["label"].index,
             )
             if train_exist:
                 self.processed_meta_input.update(
-                    X_train=d_train["feature"],
-                    y_train=d_train["label"].iloc[:, 0],
-                    train_idx=d_train["label"].index,
+                    X_train=d_train["feature"], y_train=d_train["label"].iloc[:, 0], train_idx=d_train["label"].index,
                 )
             if extra_exist:
                 self.processed_meta_input.update(
-                    X_extra=d_extra["feature"],
-                    y_extra=d_extra["label"].iloc[:, 0],
-                    extra_idx=d_extra["label"].index,
+                    X_extra=d_extra["feature"], y_extra=d_extra["label"].iloc[:, 0], extra_idx=d_extra["label"].index,
                 )
 
     def get_meta_input(self):
@@ -156,27 +126,20 @@ class MetaDatasetInc(MetaTaskDataset):
             If 'test', use data_I, especially for MLP on Alpha158 without dropping nan labels.
         """
         super().__init__(segments=segments)
-        self.task_tpl = deepcopy(
-            task_tpl
-        )  # FIXME: if the handler is shared, how to avoid the explosion of the memroy.
+        self.task_tpl = deepcopy(task_tpl)  # FIXME: if the handler is shared, how to avoid the explosion of the memroy.
         self.trunc_days = trunc_days
         self.step = step
 
         if isinstance(task_tpl, dict):
             rg = RollingGen(
-                step=step,
-                trunc_days=trunc_days,
-                task_copy_func=deepcopy_basic_type,
-                rtype=RollingGen.ROLL_SD,
+                step=step, trunc_days=trunc_days, task_copy_func=deepcopy_basic_type, rtype=RollingGen.ROLL_SD,
             )  # NOTE: trunc_days is very important !!!!
             task_iter = rg(task_tpl)
             if rolling_ext_days > 0:
                 self.ta = TimeAdjuster(future=True)
                 for t in task_iter:
                     t["dataset"]["kwargs"]["segments"]["test"] = self.ta.shift(
-                        t["dataset"]["kwargs"]["segments"]["test"],
-                        step=rolling_ext_days,
-                        rtype=RollingGen.ROLL_EX,
+                        t["dataset"]["kwargs"]["segments"]["test"], step=rolling_ext_days, rtype=RollingGen.ROLL_EX,
                     )
             init_task_handler(task_tpl)
         else:
@@ -189,13 +152,9 @@ class MetaDatasetInc(MetaTaskDataset):
         logger.info(f"Example task for training meta model: {task_iter[0]}")
 
         for t in tqdm(task_iter, desc="creating meta tasks"):
-            self.meta_task_l.append(
-                MetaTaskInc(t, data=data, data_I=data_I, mode=task_mode)
-            )
+            self.meta_task_l.append(MetaTaskInc(t, data=data, data_I=data_I, mode=task_mode))
             self.task_list.append(t)
-        assert (
-            len(self.meta_task_l) > 0
-        ), "No meta tasks found. Please check the data and setting"
+        assert len(self.meta_task_l) > 0, "No meta tasks found. Please check the data and setting"
 
     def _prepare_seg(self, segment: Text) -> List[MetaTaskInc]:
         if isinstance(self.segments, float):
@@ -208,10 +167,7 @@ class MetaDatasetInc(MetaTaskDataset):
                 raise NotImplementedError(f"This type of input is not supported")
         elif isinstance(self.segments, str):
             for i, t in enumerate(self.meta_task_l):
-                if (
-                    t.task["dataset"]["kwargs"]["segments"]["test"][-1]._date_repr
-                    >= self.segments
-                ):
+                if t.task["dataset"]["kwargs"]["segments"]["test"][-1]._date_repr >= self.segments:
                     break
             if segment == "train":
                 return self.meta_task_l[:i]

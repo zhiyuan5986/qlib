@@ -114,14 +114,11 @@ class Incremental:
         else:
             self.benchmark = "SH000300"
         if data_dir == "cn_data":
-            GetData().qlib_data(
-                target_dir="~/.qlib/qlib_data/cn_data", exists_skip=True
-            )
+            GetData().qlib_data(target_dir="~/.qlib/qlib_data/cn_data", exists_skip=True)
             auto_init()
         else:
             qlib.init(
-                provider_uri="~/.qlib/qlib_data/" + data_dir,
-                region="us" if self.data_dir == "us_data" else "cn",
+                provider_uri="~/.qlib/qlib_data/" + data_dir, region="us" if self.data_dir == "us_data" else "cn",
             )
         self.step = step
         # NOTE:
@@ -169,17 +166,13 @@ class Incremental:
             segments["test"][1],
         )
         ds = init_instance_by_config(t["dataset"], accept_types=Dataset)
-        data = ds.prepare(
-            "train", col_set=["feature", "label"], data_key=DataHandlerLP.DK_L
-        )
+        data = ds.prepare("train", col_set=["feature", "label"], data_key=DataHandlerLP.DK_L)
         if t["dataset"]["class"] == "TSDatasetH":
             data.config(fillna_type="ffill+bfill")  # process nan brought by dataloader
 
         rolling_task = self.rb.basic_task()
         if "pt_model_kwargs" in rolling_task["model"]["kwargs"] and self.alpha == 158:
-            self.d_feat = rolling_task["model"]["kwargs"]["pt_model_kwargs"][
-                "input_dim"
-            ]
+            self.d_feat = rolling_task["model"]["kwargs"]["pt_model_kwargs"]["input_dim"]
         elif "d_feat" in rolling_task["model"]["kwargs"]:
             self.d_feat = rolling_task["model"]["kwargs"]["d_feat"]
         else:
@@ -190,9 +183,7 @@ class Incremental:
         segments = rolling_task["dataset"]["kwargs"]["segments"]
         train_begin = segments["train"][0]
         train_end = gen.ta.get(gen.ta.align_idx(train_begin) + gen.step - 1)
-        test_begin = gen.ta.get(
-            gen.ta.align_idx(train_begin) + gen.step - 1 + trunc_days
-        )
+        test_begin = gen.ta.get(gen.ta.align_idx(train_begin) + gen.step - 1 + trunc_days)
         test_end = rolling_task["dataset"]["kwargs"]["segments"]["valid"][1]
         # extra_begin = gen.ta.get(gen.ta.align_idx(train_end) + 1)
         # extra_end = gen.ta.get(gen.ta.align_idx(test_begin) - 1)
@@ -232,9 +223,7 @@ class Incremental:
 
         train_begin = segments["valid"][0]
         train_end = gen.ta.get(gen.ta.align_idx(train_begin) + gen.step - 1)
-        test_begin = gen.ta.get(
-            gen.ta.align_idx(train_begin) + gen.step - 1 + trunc_days
-        )
+        test_begin = gen.ta.get(gen.ta.align_idx(train_begin) + gen.step - 1 + trunc_days)
         # extra_begin = gen.ta.get(gen.ta.align_idx(train_end) + 1)
         # extra_end = gen.ta.get(gen.ta.align_idx(test_begin) - 1)
         rolling_task["dataset"]["kwargs"]["segments"] = {
@@ -245,9 +234,7 @@ class Incremental:
         kwargs.update(task_tpl=rolling_task, segments=0.0)
         if self.forecast_model == "MLP" and self.alpha == 158:
             kwargs.update(task_mode="test")
-            data_I = ds.prepare(
-                "train", col_set=["feature", "label"], data_key=DataHandlerLP.DK_I
-            )
+            data_I = ds.prepare("train", col_set=["feature", "label"], data_key=DataHandlerLP.DK_I)
         else:
             data_I = None
         md_online = MetaDatasetInc(data=data, data_I=data_I, **kwargs)
@@ -320,9 +307,7 @@ class Incremental:
 
     def online_training(self, meta_tasks_test, meta_model=None, tag=""):
         if meta_model is None:
-            exp = R.get_exp(
-                experiment_name="MLP_alpha158_horizon1_step20_normTrue_1668074284"
-            )
+            exp = R.get_exp(experiment_name="MLP_alpha158_horizon1_step20_normTrue_1668074284")
             rec = exp.list_recorders(rtype=exp.RT_L)[0]
             meta_model: MetaModelInc = rec.load_object("model")
         else:
@@ -338,13 +323,9 @@ class Incremental:
         self.infer_exp_name = self.meta_exp_name + "_online" + tag
         with R.start(experiment_name=self.infer_exp_name):
             ds = init_instance_by_config(self.task["dataset"], accept_types=Dataset)
-            label_all = ds.prepare(
-                segments="test", col_set="label", data_key=DataHandlerLP.DK_R
-            )
+            label_all = ds.prepare(segments="test", col_set="label", data_key=DataHandlerLP.DK_R)
             if isinstance(label_all, TSDataSampler):
-                label_all = pd.DataFrame(
-                    {"label": label_all.data_arr[:-1][:, 0]}, index=label_all.data_index
-                )
+                label_all = pd.DataFrame({"label": label_all.data_arr[:-1][:, 0]}, index=label_all.data_index)
                 label_all = label_all.loc[test_begin:test_end]
             label_all = label_all.dropna(axis=0)
             mlp158 = self.forecast_model == "MLP" and self.alpha == 158
@@ -385,20 +366,14 @@ class Incremental:
                 },
             },
         }
-        rec = R.get_exp(experiment_name=self.infer_exp_name).list_recorders(
-            rtype=Experiment.RT_L
-        )[0]
+        rec = R.get_exp(experiment_name=self.infer_exp_name).list_recorders(rtype=Experiment.RT_L)[0]
         # rmse = np.sqrt(((pred_y_all['pred'].to_numpy() - pred_y_all['label'].to_numpy()) ** 2).mean())
         # mae = np.abs(pred_y_all['pred'].to_numpy() - pred_y_all['label'].to_numpy()).mean()
         # print('rmse:', rmse, 'mae', mae)
         # rec.log_metrics(rmse=rmse, mae=mae)
         SigAnaRecord(recorder=rec, skip_existing=True).generate()
-        PortAnaRecord(
-            recorder=rec, config=backtest_config, skip_existing=True
-        ).generate()
-        print(
-            f"Your evaluation results can be found in the experiment named `{self.infer_exp_name}`."
-        )
+        PortAnaRecord(recorder=rec, config=backtest_config, skip_existing=True).generate()
+        print(f"Your evaluation results can be found in the experiment named `{self.infer_exp_name}`.")
         return rec
 
     def run_all(self):

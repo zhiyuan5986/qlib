@@ -140,11 +140,7 @@ class MetaModelInc(MetaTaskModel):
         if phase != "train":
             pred_y_all = pd.concat(pred_y_all)
         if phase == "test":
-            ic = (
-                pred_y_all.groupby("datetime")
-                .apply(lambda df: df["pred"].corr(df["label"], method="pearson"))
-                .mean()
-            )
+            ic = pred_y_all.groupby("datetime").apply(lambda df: df["pred"].corr(df["label"], method="pearson")).mean()
             print(ic)
             return pred_y_all, ic
             # print(-mse_all)
@@ -163,9 +159,7 @@ class MetaModelInc(MetaTaskModel):
             track_higher_grads=not self.first_order,
             # override={'lr': [self.lr_model]}
         ) as (fmodel, diffopt):
-            with torch.backends.cudnn.flags(
-                enabled=self.first_order or not self.is_rnn
-            ):
+            with torch.backends.cudnn.flags(enabled=self.first_order or not self.is_rnn):
                 y_hat = self.tn(
                     X,
                     # meta_input['train_mu'], meta_input['train_std'],
@@ -180,25 +174,9 @@ class MetaModelInc(MetaTaskModel):
         loss2 = self.tn.criterion(y_hat, y)
         diffopt.step(loss2)
 
-        if (
-            phase != "train"
-            and "X_extra" in meta_input
-            and meta_input["X_extra"].shape[0] > 0
-        ):
-            X_test = torch.cat(
-                [
-                    meta_input["X_extra"].to(self.tn.device),
-                    meta_input["X_test"].to(self.tn.device),
-                ],
-                0,
-            )
-            y_test = torch.cat(
-                [
-                    meta_input["y_extra"].to(self.tn.device),
-                    meta_input["y_test"].to(self.tn.device),
-                ],
-                0,
-            )
+        if phase != "train" and "X_extra" in meta_input and meta_input["X_extra"].shape[0] > 0:
+            X_test = torch.cat([meta_input["X_extra"].to(self.tn.device), meta_input["X_test"].to(self.tn.device),], 0,)
+            y_test = torch.cat([meta_input["y_extra"].to(self.tn.device), meta_input["y_test"].to(self.tn.device),], 0,)
         else:
             X_test = meta_input["X_test"].to(self.tn.device)
             y_test = meta_input["y_test"].to(self.tn.device)
@@ -231,18 +209,10 @@ class MetaModelInc(MetaTaskModel):
             loss_y = F.mse_loss(y, raw_y)
             if self.first_order:
                 with torch.no_grad():
-                    pred2 = self.tn(
-                        X_test if phase == "test" else X_test,
-                        model=None,
-                        transform=self.adapt_x,
-                    )
-                    pred2 = self.tn.teacher_y(
-                        X_test, pred2.detach(), inverse=True
-                    ).detach()
+                    pred2 = self.tn(X_test if phase == "test" else X_test, model=None, transform=self.adapt_x,)
+                    pred2 = self.tn.teacher_y(X_test, pred2.detach(), inverse=True).detach()
                     loss_old = self.tn.criterion(pred2.view_as(y_test), y_test)
-                loss_y = (
-                    loss_old.item() - loss.item()
-                ) / self.sigma * loss_y + loss_y * self.reg
+                loss_y = (loss_old.item() - loss.item()) / self.sigma * loss_y + loss_y * self.reg
             else:
                 loss_y = loss_y * self.reg
             loss_y.backward()
@@ -268,9 +238,7 @@ class MetaModelInc(MetaTaskModel):
         # else:
         pred = self.tn(meta_input["X_test"].to(self.tn.device), None, transform=False)
         with torch.no_grad():
-            mse = self.tn.criterion(
-                pred, meta_input["y_test"].to(self.tn.device)
-            ).item()
+            mse = self.tn.criterion(pred, meta_input["y_test"].to(self.tn.device)).item()
         return pred.detach().cpu().numpy(), mse
 
     def inference(self, meta_dataset: MetaTaskDataset):
@@ -282,14 +250,7 @@ class MetaModelInc(MetaTaskModel):
 
 class MetaCoG(MetaModelInc):
     def __init__(
-        self,
-        task_config,
-        lr=0.001,
-        first_order=True,
-        is_rnn=False,
-        d_feat=6,
-        alpha=360,
-        pretrained_model=None,
+        self, task_config, lr=0.001, first_order=True, is_rnn=False, d_feat=6, alpha=360, pretrained_model=None,
     ):
         self.task_config = task_config
         self.lr = lr
@@ -298,11 +259,7 @@ class MetaCoG(MetaModelInc):
         self.d_feat = d_feat
         self.alpha = alpha
         self.tn = CoG(
-            self.task_config,
-            dim=self.d_feat,
-            need_permute=self.alpha == 360,
-            model=pretrained_model,
-            lr=0.001,
+            self.task_config, dim=self.d_feat, need_permute=self.alpha == 360, model=pretrained_model, lr=0.001,
         )
         self.opt = optim.Adam(self.tn.meta_params, lr=self.lr)
         self.naive = False
@@ -314,21 +271,10 @@ class MetaCoG(MetaModelInc):
         self.tn.opt.zero_grad()
         self.opt.zero_grad()
         X = meta_input["X_train"].to(self.tn.device)
-        fmodel = higher.monkeypatch(
-            self.tn.model,
-            copy_initial_weights=True,
-            track_higher_grads=not self.first_order,
-        )
-        fmask = higher.monkeypatch(
-            self.tn.mask,
-            copy_initial_weights=False,
-            track_higher_grads=not self.first_order,
-        )
+        fmodel = higher.monkeypatch(self.tn.model, copy_initial_weights=True, track_higher_grads=not self.first_order,)
+        fmask = higher.monkeypatch(self.tn.mask, copy_initial_weights=False, track_higher_grads=not self.first_order,)
         diffopt = higher.optim.get_diff_optim(
-            self.opt,
-            self.tn.mask.parameters(),
-            fmodel=fmask,
-            track_higher_grads=not self.first_order,
+            self.opt, self.tn.mask.parameters(), fmodel=fmask, track_higher_grads=not self.first_order,
         )
         fmodel.update_params(list(self.tn.model.parameters()))
         with torch.backends.cudnn.flags(enabled=self.first_order or not self.is_seq):
@@ -340,37 +286,15 @@ class MetaCoG(MetaModelInc):
             loss2 += sum([torch.norm(p, 1) for p in fmask.fast_params]) * self.gamma
         diffopt.step(loss2)
 
-        if (
-            phase == "test"
-            and "X_extra" in meta_input
-            and meta_input["X_extra"].shape[0] > 0
-        ):
-            X_test = torch.cat(
-                [
-                    meta_input["X_extra"].to(self.tn.device),
-                    meta_input["X_test"].to(self.tn.device),
-                ],
-                0,
-            )
-            y_test = torch.cat(
-                [
-                    meta_input["y_extra"].to(self.tn.device),
-                    meta_input["y_test"].to(self.tn.device),
-                ],
-                0,
-            )
+        if phase == "test" and "X_extra" in meta_input and meta_input["X_extra"].shape[0] > 0:
+            X_test = torch.cat([meta_input["X_extra"].to(self.tn.device), meta_input["X_test"].to(self.tn.device),], 0,)
+            y_test = torch.cat([meta_input["y_extra"].to(self.tn.device), meta_input["y_test"].to(self.tn.device),], 0,)
         else:
             X_test = meta_input["X_test"].to(self.tn.device)
             y_test = meta_input["y_test"].to(self.tn.device)
 
-        fmodel = higher.monkeypatch(
-            self.tn.model,
-            copy_initial_weights=True,
-            track_higher_grads=not self.first_order,
-        )
-        pred = self.tn(
-            X_test, fmodel=fmodel, fmask=fmask, mask_y=meta_input.get("mask_y")
-        )
+        fmodel = higher.monkeypatch(self.tn.model, copy_initial_weights=True, track_higher_grads=not self.first_order,)
+        pred = self.tn(X_test, fmodel=fmodel, fmask=fmask, mask_y=meta_input.get("mask_y"))
         if phase != "train":
             test_begin = len(meta_input["y_extra"]) if "y_extra" in meta_input else 0
             meta_end = test_begin + meta_input["meta_end"]
@@ -408,11 +332,7 @@ class CMAML:
         self.num_head = num_head
         self.temperature = temperature
         self.tn = ForecastModel(
-            self.task_config,
-            dim=self.d_feat,
-            need_permute=self.alpha == 360,
-            model=pretrained_model,
-            lr=0.001,
+            self.task_config, dim=self.d_feat, need_permute=self.alpha == 360, model=pretrained_model, lr=0.001,
         )
         self.batch_size = 1
         self.sample_num = sample_num
@@ -466,14 +386,9 @@ class CMAML:
                 y = meta_input["y_train"].to(self.tn.device)
                 # k = self.sample_num
                 with higher.innerloop_ctx(
-                    self.tn.model,
-                    self.tn.opt,
-                    copy_initial_weights=False,
-                    track_higher_grads=not self.first_order,
+                    self.tn.model, self.tn.opt, copy_initial_weights=False, track_higher_grads=not self.first_order,
                 ) as (fmodel, diffopt):
-                    with torch.backends.cudnn.flags(
-                        enabled=self.first_order or not self.is_seq
-                    ):
+                    with torch.backends.cudnn.flags(enabled=self.first_order or not self.is_seq):
                         y_hat = self.tn(X, model=fmodel)
                         diffopt.step(self.tn.criterion(y_hat, y))
 
@@ -495,14 +410,9 @@ class CMAML:
             self.tn.opt.zero_grad()
             X = meta_input["X_train"].to(self.tn.device)
             with higher.innerloop_ctx(
-                self.tn.model,
-                self.tn.opt,
-                copy_initial_weights=False,
-                track_higher_grads=False,
+                self.tn.model, self.tn.opt, copy_initial_weights=False, track_higher_grads=False,
             ) as (fmodel, diffopt):
-                with torch.backends.cudnn.flags(
-                    enabled=self.first_order or not self.is_seq
-                ):
+                with torch.backends.cudnn.flags(enabled=self.first_order or not self.is_seq):
                     y_hat = self.tn(X, model=fmodel)
             y = meta_input["y_train"].to(self.tn.device)
             loss2 = self.tn.criterion(y_hat, y)
@@ -523,11 +433,7 @@ class CMAML:
                 )
             )
         pred_y_all = pd.concat(pred_y_all)
-        ic = (
-            pred_y_all.groupby("datetime")
-            .apply(lambda df: df["pred"].corr(df["label"], method="pearson"))
-            .mean()
-        )
+        ic = pred_y_all.groupby("datetime").apply(lambda df: df["pred"].corr(df["label"], method="pearson")).mean()
         # R.log_metrics(**{f"ic/{phase}": ic, "step": epoch})
         # nloss = -sum(losses) / len(losses)
         print(ic)
@@ -548,10 +454,7 @@ class CMAML:
 
         if self.fast_model is None:
             with higher.innerloop_ctx(
-                self.tn.model,
-                self.tn.opt,
-                copy_initial_weights=False,
-                track_higher_grads=not self.first_order,
+                self.tn.model, self.tn.opt, copy_initial_weights=False, track_higher_grads=not self.first_order,
             ) as (fmodel, diffopt):
                 self.fast_model = fmodel
                 self.fast_opt = diffopt
@@ -572,19 +475,10 @@ class CMAML:
             return output
 
         with higher.innerloop_ctx(
-            self.tn.model,
-            self.tn.opt,
-            copy_initial_weights=False,
-            track_higher_grads=not self.first_order,
+            self.tn.model, self.tn.opt, copy_initial_weights=False, track_higher_grads=not self.first_order,
         ) as (fmodel, diffopt):
-            with torch.backends.cudnn.flags(
-                enabled=self.first_order or not self.is_seq
-            ):
-                diffopt.step(
-                    self.tn.criterion(
-                        self.tn(self.buffer_x, model=fmodel), self.buffer_y
-                    )
-                )
+            with torch.backends.cudnn.flags(enabled=self.first_order or not self.is_seq):
+                diffopt.step(self.tn.criterion(self.tn(self.buffer_x, model=fmodel), self.buffer_y))
         self.fast_model = fmodel
         self.fast_opt = diffopt
 
@@ -613,10 +507,7 @@ class CMAML:
 
         if self.fast_model is None:
             with higher.innerloop_ctx(
-                self.tn.model,
-                self.tn.opt,
-                copy_initial_weights=False,
-                track_higher_grads=not self.first_order,
+                self.tn.model, self.tn.opt, copy_initial_weights=False, track_higher_grads=not self.first_order,
             ) as (fmodel, diffopt):
                 self.fast_model = fmodel
                 self.fast_opt = diffopt
@@ -632,14 +523,9 @@ class CMAML:
         X = X[:end_point]
 
         with higher.innerloop_ctx(
-            self.tn.model,
-            self.tn.opt,
-            copy_initial_weights=False,
-            track_higher_grads=not self.first_order,
+            self.tn.model, self.tn.opt, copy_initial_weights=False, track_higher_grads=not self.first_order,
         ) as (fmodel, diffopt):
-            with torch.backends.cudnn.flags(
-                enabled=self.first_order or not self.is_seq
-            ):
+            with torch.backends.cudnn.flags(enabled=self.first_order or not self.is_seq):
                 diffopt.step(self.tn.criterion(self.tn(X, model=fmodel), y))
 
         self.fast_model = fmodel
@@ -673,10 +559,7 @@ class CMAML:
 
         if self.fast_model is None:
             with higher.innerloop_ctx(
-                self.tn.model,
-                self.tn.opt,
-                copy_initial_weights=False,
-                track_higher_grads=False,
+                self.tn.model, self.tn.opt, copy_initial_weights=False, track_higher_grads=False,
             ) as (fmodel, diffopt):
                 self.fast_model = fmodel
                 self.fast_opt = diffopt
@@ -696,14 +579,9 @@ class CMAML:
         X = X[:end_point]
 
         with higher.innerloop_ctx(
-            self.tn.model,
-            self.tn.opt,
-            copy_initial_weights=False,
-            track_higher_grads=False,
+            self.tn.model, self.tn.opt, copy_initial_weights=False, track_higher_grads=False,
         ) as (fmodel, diffopt):
-            diffopt.step(
-                self.tn.criterion(self.tn(X, model=fmodel), y), first_order=True
-            )
+            diffopt.step(self.tn.criterion(self.tn(X, model=fmodel), y), first_order=True)
 
         with torch.no_grad():
             y_hat = self.tn(X, model=fmodel)
@@ -712,9 +590,7 @@ class CMAML:
         # print(loss1 - loss2)
         if loss1 - loss2 < self.gamma:
             self.fast_opt.step(loss1)
-            self.fast_model.update_params(
-                [p.detach().requires_grad_() for p in self.fast_model.fast_params]
-            )
+            self.fast_model.update_params([p.detach().requires_grad_() for p in self.fast_model.fast_params])
             self.buffer_x = torch.cat([self.buffer_x, X.cpu()], 0)[-self.buffer_size :]
             self.buffer_y = torch.cat([self.buffer_y, y.cpu()], 0)[-self.buffer_size :]
         else:
@@ -725,14 +601,9 @@ class CMAML:
             # sample_x, sample_y = self.buffer_x[sample_idx].to(self.tn.device), self.buffer_y[sample_idx].to(self.tn.device)
             self.consolidate()
             with higher.innerloop_ctx(
-                self.tn.model,
-                self.tn.opt,
-                copy_initial_weights=False,
-                track_higher_grads=False,
+                self.tn.model, self.tn.opt, copy_initial_weights=False, track_higher_grads=False,
             ) as (fmodel, diffopt):
-                diffopt.step(
-                    self.tn.criterion(self.tn(X, model=fmodel), y), first_order=True
-                )
+                diffopt.step(self.tn.criterion(self.tn(X, model=fmodel), y), first_order=True)
                 self.fast_model = fmodel
                 # self.fast_model.update_params([p.detach().requires_grad_() for p in self.fast_model.fast_params])
                 self.fast_opt = diffopt
@@ -749,23 +620,16 @@ class CMAML:
         sample_x = self.buffer_x[-sample_num:].to(self.tn.device)
         sample_y = self.buffer_y[-sample_num:].to(self.tn.device)
         with higher.innerloop_ctx(
-            self.tn.model,
-            self.tn.opt,
-            copy_initial_weights=False,
-            track_higher_grads=not self.first_order,
+            self.tn.model, self.tn.opt, copy_initial_weights=False, track_higher_grads=not self.first_order,
         ) as (fmodel, diffopt):
-            with torch.backends.cudnn.flags(
-                enabled=self.first_order or not self.is_seq
-            ):
+            with torch.backends.cudnn.flags(enabled=self.first_order or not self.is_seq):
                 diffopt.step(
                     self.tn.criterion(
-                        self.tn(sample_x[: len(sample_x) // 2], model=fmodel),
-                        sample_y[: len(sample_x) // 2],
+                        self.tn(sample_x[: len(sample_x) // 2], model=fmodel), sample_y[: len(sample_x) // 2],
                     )
                 )
         loss3 = self.tn.criterion(
-            self.tn(sample_x[len(sample_x) // 2 :], model=fmodel),
-            sample_y[len(sample_x) // 2 :],
+            self.tn(sample_x[len(sample_x) // 2 :], model=fmodel), sample_y[len(sample_x) // 2 :],
         )
         self.tn.opt.zero_grad()
         smoothing_weight = 1 - torch.exp(-self.lamda * loss3.detach())
@@ -785,10 +649,7 @@ class CMAML:
             test_idx = meta_input["test_idx"]
             pred_y_all.append(
                 pd.DataFrame(
-                    {
-                        "pred": pd.Series(pred, index=test_idx),
-                        "label": pd.Series(meta_input["y_test"], index=test_idx),
-                    }
+                    {"pred": pd.Series(pred, index=test_idx), "label": pd.Series(meta_input["y_test"], index=test_idx),}
                 )
             )
         pred_y_all = pd.concat(pred_y_all)

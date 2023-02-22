@@ -46,12 +46,7 @@ class LabelAdapter(nn.Module):
         v = self.linear(x.reshape(len(x), -1))
         gate = cosine(v, self.P)
         gate = torch.softmax(gate / self.temperature, -1)
-        return sum(
-            [
-                gate[:, i] * self.heads[i](y, inverse=inverse)
-                for i in range(self.num_head)
-            ]
-        )
+        return sum([gate[:, i] * self.heads[i](y, inverse=inverse) for i in range(self.num_head)])
 
 
 class MultiHeadAdapt(nn.Module):
@@ -65,11 +60,7 @@ class MultiHeadAdapt(nn.Module):
 
     def forward(self, x):
         gate = torch.cat(
-            [
-                torch.cosine_similarity(x, self.P[i], dim=-1).unsqueeze(-1)
-                for i in range(self.num_head)
-            ],
-            -1,
+            [torch.cosine_similarity(x, self.P[i], dim=-1).unsqueeze(-1) for i in range(self.num_head)], -1,
         )
         gate = torch.softmax(gate / self.temperature, -1).unsqueeze(-1)
         return sum([gate[..., i, :] * self.heads[i](x) for i in range(self.num_head)])
@@ -78,9 +69,7 @@ class MultiHeadAdapt(nn.Module):
 class FeatureAdapter(nn.Module):
     def __init__(self, in_dim=360, hid_dim=6, num_head=6, temperature=4):
         super().__init__()
-        self.net = MultiHeadAdapt(
-            in_dim, in_dim, num_head=num_head, temperature=temperature
-        )
+        self.net = MultiHeadAdapt(in_dim, in_dim, num_head=num_head, temperature=temperature)
 
     def forward(self, X):
         return X + self.net(X)
@@ -96,19 +85,14 @@ class ForecastModel(nn.Module):
             self.model = nn.Linear(dim, 1)
             self.model.load_state_dict(
                 collections.OrderedDict(
-                    {
-                        "weight": torch.from_numpy(model.coef_).unsqueeze(0),
-                        "bias": torch.tensor([model.intercept_]),
-                    }
+                    {"weight": torch.from_numpy(model.coef_).unsqueeze(0), "bias": torch.tensor([model.intercept_]),}
                 )
             )
             self.opt = torch.optim.SGD(self.model.parameters(), lr=self.lr)
             self.device = None
         else:
             if model is None:
-                model = init_instance_by_config(
-                    task_config["model"], accept_types=Model
-                )
+                model = init_instance_by_config(task_config["model"], accept_types=Model)
                 self.opt = None
             else:
                 self.opt = model.train_optimizer
@@ -130,11 +114,7 @@ class ForecastModel(nn.Module):
         if model is None:
             model = self.model
         if X.dim() == 3:
-            X = (
-                X.permute(0, 2, 1).reshape(len(X), -1)
-                if self.need_permute
-                else X.reshape(len(X), -1)
-            )
+            X = X.permute(0, 2, 1).reshape(len(X), -1) if self.need_permute else X.reshape(len(X), -1)
         y_hat = model(X)
         y_hat = y_hat.view(-1)
         return y_hat
@@ -142,28 +122,14 @@ class ForecastModel(nn.Module):
 
 class TeacherNet(ForecastModel):
     def __init__(
-        self,
-        task_config,
-        dim=None,
-        lr=0.001,
-        need_permute=False,
-        model=None,
-        seq_len=60,
-        num_head=6,
-        temperature=4,
+        self, task_config, dim=None, lr=0.001, need_permute=False, model=None, seq_len=60, num_head=6, temperature=4,
     ):
         super().__init__(
-            task_config=task_config,
-            dim=dim,
-            lr=lr,
-            need_permute=need_permute,
-            model=model,
+            task_config=task_config, dim=dim, lr=lr, need_permute=need_permute, model=model,
         )
         self.teacher_x = FeatureAdapter(dim, dim, num_head, temperature)
         self.teacher_y = LabelAdapter(dim, seq_len, num_head, temperature)
-        self.meta_params = list(self.teacher_x.parameters()) + list(
-            self.teacher_y.parameters()
-        )
+        self.meta_params = list(self.teacher_x.parameters()) + list(self.teacher_y.parameters())
         if self.device is not None:
             self.to(self.device)
 
@@ -176,17 +142,10 @@ class TeacherNet(ForecastModel):
 class CoG(ForecastModel):
     def __init__(self, task_config, dim=None, lr=0.001, need_permute=False, model=None):
         super().__init__(
-            task_config=task_config,
-            dim=dim,
-            lr=lr,
-            need_permute=need_permute,
-            model=model,
+            task_config=task_config, dim=dim, lr=lr, need_permute=need_permute, model=model,
         )
         self.mask = nn.ParameterList(
-            [
-                nn.Parameter(torch.ones_like(param.data) * 3)
-                for param in self.model.parameters()
-            ]
+            [nn.Parameter(torch.ones_like(param.data) * 3) for param in self.model.parameters()]
         )
         self.meta_params = self.mask.parameters()
         if self.device is not None:
