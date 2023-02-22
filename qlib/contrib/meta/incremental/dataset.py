@@ -1,4 +1,3 @@
-
 import numpy as np
 from copy import deepcopy
 
@@ -21,16 +20,22 @@ from .utils import get_data_from_seg, get_data_and_idx
 class MetaTaskInc:
     """Meta task for incremental learning"""
 
-    def __init__(self, task: dict, data=None, data_I=None, mode='train'):
+    def __init__(self, task: dict, data=None, data_I=None, mode="train"):
         self.task = task
 
-        train_exist = 'train' in self.task["dataset"]["kwargs"]["segments"]
-        extra_exist = 'extra' in self.task["dataset"]["kwargs"]["segments"]
+        train_exist = "train" in self.task["dataset"]["kwargs"]["segments"]
+        extra_exist = "extra" in self.task["dataset"]["kwargs"]["segments"]
         if train_exist:
-            train_segs = [str(dt) for dt in self.task["dataset"]["kwargs"]["segments"]['train']]
+            train_segs = [
+                str(dt) for dt in self.task["dataset"]["kwargs"]["segments"]["train"]
+            ]
         if extra_exist:
-            extra_segs = [str(dt) for dt in self.task["dataset"]["kwargs"]["segments"]['extra']]
-        test_segs = [str(dt) for dt in self.task["dataset"]["kwargs"]["segments"]['test']]
+            extra_segs = [
+                str(dt) for dt in self.task["dataset"]["kwargs"]["segments"]["extra"]
+            ]
+        test_segs = [
+            str(dt) for dt in self.task["dataset"]["kwargs"]["segments"]["test"]
+        ]
         if isinstance(data, TSDataSampler):
             if train_exist:
                 d_train, d_train_idx = get_data_and_idx(data, train_segs)
@@ -58,20 +63,34 @@ class MetaTaskInc:
             if data is None:
                 ds = init_instance_by_config(self.task["dataset"], accept_types=Dataset)
                 if train_exist:
-                    d_train = ds.prepare("train", col_set=["feature", "label"], data_key=DataHandlerLP.DK_L)
+                    d_train = ds.prepare(
+                        "train",
+                        col_set=["feature", "label"],
+                        data_key=DataHandlerLP.DK_L,
+                    )
                 if extra_exist:
-                    d_extra = ds.prepare("extra", col_set=["feature", "label"], data_key=DataHandlerLP.DK_L)
-                d_test = ds.prepare("test", col_set=["feature", "label"],
-                                    data_key=DataHandlerLP.DK_L if mode == 'train' else DataHandlerLP.DK_I)
-                if mode == 'test':
-                    assert np.isnan(d_test['feature'].values).sum() == 0, \
-                        f'Check null test segment {self.task["dataset"]["kwargs"]["segments"]["test"]}'
+                    d_extra = ds.prepare(
+                        "extra",
+                        col_set=["feature", "label"],
+                        data_key=DataHandlerLP.DK_L,
+                    )
+                d_test = ds.prepare(
+                    "test",
+                    col_set=["feature", "label"],
+                    data_key=DataHandlerLP.DK_L
+                    if mode == "train"
+                    else DataHandlerLP.DK_I,
+                )
+                if mode == "test":
+                    assert (
+                        np.isnan(d_test["feature"].values).sum() == 0
+                    ), f'Check null test segment {self.task["dataset"]["kwargs"]["segments"]["test"]}'
             else:
                 if train_exist:
                     d_train = get_data_from_seg(train_segs, data)
                 if extra_exist:
                     d_extra = get_data_from_seg(extra_segs, data)
-                if mode != 'train' and data_I is not None:
+                if mode != "train" and data_I is not None:
                     data = data_I
                 d_test = get_data_from_seg(test_segs, data, True)
             self.processed_meta_input = dict(
@@ -83,13 +102,13 @@ class MetaTaskInc:
                 self.processed_meta_input.update(
                     X_train=d_train["feature"],
                     y_train=d_train["label"].iloc[:, 0],
-                    train_idx=d_train['label'].index,
+                    train_idx=d_train["label"].index,
                 )
             if extra_exist:
                 self.processed_meta_input.update(
                     X_extra=d_extra["feature"],
                     y_extra=d_extra["label"].iloc[:, 0],
-                    extra_idx=d_extra['label'].index,
+                    extra_idx=d_extra["label"].index,
                 )
 
     def get_meta_input(self):
@@ -98,16 +117,16 @@ class MetaTaskInc:
 
 class MetaDatasetInc(MetaTaskDataset):
     def __init__(
-            self,
-            *,
-            task_tpl: Union[dict, list],
-            step: int,
-            trunc_days: int = None,
-            rolling_ext_days: int = 0,
-            segments: Union[Dict[Text, Tuple], float],
-            task_mode: str = "train",
-            data=None,
-            data_I=None
+        self,
+        *,
+        task_tpl: Union[dict, list],
+        step: int,
+        trunc_days: int = None,
+        rolling_ext_days: int = 0,
+        segments: Union[Dict[Text, Tuple], float],
+        task_mode: str = "train",
+        data=None,
+        data_I=None,
     ):
         """
         A dataset for meta model.
@@ -137,20 +156,27 @@ class MetaDatasetInc(MetaTaskDataset):
             If 'test', use data_I, especially for MLP on Alpha158 without dropping nan labels.
         """
         super().__init__(segments=segments)
-        self.task_tpl = deepcopy(task_tpl)  # FIXME: if the handler is shared, how to avoid the explosion of the memroy.
+        self.task_tpl = deepcopy(
+            task_tpl
+        )  # FIXME: if the handler is shared, how to avoid the explosion of the memroy.
         self.trunc_days = trunc_days
         self.step = step
 
         if isinstance(task_tpl, dict):
             rg = RollingGen(
-                step=step, trunc_days=trunc_days, task_copy_func=deepcopy_basic_type, rtype=RollingGen.ROLL_SD
+                step=step,
+                trunc_days=trunc_days,
+                task_copy_func=deepcopy_basic_type,
+                rtype=RollingGen.ROLL_SD,
             )  # NOTE: trunc_days is very important !!!!
             task_iter = rg(task_tpl)
             if rolling_ext_days > 0:
                 self.ta = TimeAdjuster(future=True)
                 for t in task_iter:
                     t["dataset"]["kwargs"]["segments"]["test"] = self.ta.shift(
-                        t["dataset"]["kwargs"]["segments"]["test"], step=rolling_ext_days, rtype=RollingGen.ROLL_EX
+                        t["dataset"]["kwargs"]["segments"]["test"],
+                        step=rolling_ext_days,
+                        rtype=RollingGen.ROLL_EX,
                     )
             init_task_handler(task_tpl)
         else:
@@ -167,7 +193,9 @@ class MetaDatasetInc(MetaTaskDataset):
                 MetaTaskInc(t, data=data, data_I=data_I, mode=task_mode)
             )
             self.task_list.append(t)
-        assert len(self.meta_task_l) > 0, "No meta tasks found. Please check the data and setting"
+        assert (
+            len(self.meta_task_l) > 0
+        ), "No meta tasks found. Please check the data and setting"
 
     def _prepare_seg(self, segment: Text) -> List[MetaTaskInc]:
         if isinstance(self.segments, float):
@@ -180,7 +208,10 @@ class MetaDatasetInc(MetaTaskDataset):
                 raise NotImplementedError(f"This type of input is not supported")
         elif isinstance(self.segments, str):
             for i, t in enumerate(self.meta_task_l):
-                if t.task['dataset']['kwargs']['segments']['test'][-1]._date_repr >= self.segments:
+                if (
+                    t.task["dataset"]["kwargs"]["segments"]["test"][-1]._date_repr
+                    >= self.segments
+                ):
                     break
             if segment == "train":
                 return self.meta_task_l[:i]

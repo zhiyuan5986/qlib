@@ -1,5 +1,3 @@
-
-
 from higher import optim, patch
 from higher.optim import _OverrideType, _GradCallbackType
 import typing as _typing
@@ -8,8 +6,9 @@ import torch as _torch
 
 import sys
 
-if '_forward_pre_hooks' in patch._internal_attrs:
-    patch._internal_attrs.remove('_forward_pre_hooks')
+if "_forward_pre_hooks" in patch._internal_attrs:
+    patch._internal_attrs.remove("_forward_pre_hooks")
+
 
 class DifferentiableOptimizer(optim.DifferentiableOptimizer):
     def step(
@@ -97,7 +96,7 @@ class DifferentiableOptimizer(optim.DifferentiableOptimizer):
             input,
             grad_targets,
             create_graph=self._track_higher_grads,
-            allow_unused=True  # boo
+            allow_unused=True,  # boo
         )
         if grad_callback is not None:
             all_grads = grad_callback(all_grads)
@@ -108,7 +107,7 @@ class DifferentiableOptimizer(optim.DifferentiableOptimizer):
         for group, mapping in zip(self.param_groups, self._group_to_param_list):
             grads = []
             for i, index in enumerate(mapping):
-                group['params'][i] = params[index]
+                group["params"][i] = params[index]
                 grads.append(all_grads[index])
             grouped_grads.append(grads)
         # else:
@@ -120,14 +119,13 @@ class DifferentiableOptimizer(optim.DifferentiableOptimizer):
         #             grads.append(input[index])
         #         grouped_grads.append(grads)
 
-
         self._update(grouped_grads)
 
         new_params = params[:]
         for group, mapping in zip(self.param_groups, self._group_to_param_list):
-            for p, index in zip(group['params'], mapping):
+            for p, index in zip(group["params"], mapping):
                 if not first_order:
-                # if self._track_higher_grads:
+                    # if self._track_higher_grads:
                     new_params[index] = p
                 else:
                     new_params[index] = p.detach().requires_grad_()
@@ -138,5 +136,8 @@ class DifferentiableOptimizer(optim.DifferentiableOptimizer):
         return new_params
 
 
-
-setattr(sys.modules['higher.optim'].__dict__['DifferentiableOptimizer'], 'step', DifferentiableOptimizer.step)
+setattr(
+    sys.modules["higher.optim"].__dict__["DifferentiableOptimizer"],
+    "step",
+    DifferentiableOptimizer.step,
+)

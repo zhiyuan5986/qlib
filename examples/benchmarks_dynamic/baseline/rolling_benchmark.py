@@ -36,29 +36,42 @@ from qlib.workflow.record_temp import PortAnaRecord, SigAnaRecord
 
 
 class RollingBenchmark:
-
-    def __init__(self, data_dir='cn_data', market='csi300', init_data=True,
-                 model_type="linear", step=20, alpha="158", horizon=1, rank_label=True) -> None:
+    def __init__(
+        self,
+        data_dir="cn_data",
+        market="csi300",
+        init_data=True,
+        model_type="linear",
+        step=20,
+        alpha="158",
+        horizon=1,
+        rank_label=True,
+    ) -> None:
         self.data_dir = data_dir
         self.market = market
         if init_data:
-            if data_dir == 'cn_data':
-                GetData().qlib_data(target_dir="~/.qlib/qlib_data/cn_data", exists_skip=True)
+            if data_dir == "cn_data":
+                GetData().qlib_data(
+                    target_dir="~/.qlib/qlib_data/cn_data", exists_skip=True
+                )
                 auto_init()
             else:
-                qlib.init(provider_uri='~/.qlib/qlib_data/' + data_dir, region='us' if self.data_dir == 'us_data' else 'cn')
+                qlib.init(
+                    provider_uri="~/.qlib/qlib_data/" + data_dir,
+                    region="us" if self.data_dir == "us_data" else "cn",
+                )
         self.step = step
         self.horizon = horizon
         # self.rolling_exp = rolling_exp
         self.model_type = model_type
         self.rank_label = rank_label
         self.alpha = alpha
-        self.tag = ''
-        if self.data_dir == 'us_data':
+        self.tag = ""
+        if self.data_dir == "us_data":
             self.benchmark = "^gspc"
-        elif self.market == 'csi500':
+        elif self.market == "csi500":
             self.benchmark = "SH000905"
-        elif self.market == 'csi100':
+        elif self.market == "csi100":
             self.benchmark = "SH000903"
         else:
             self.benchmark = "SH000300"
@@ -74,27 +87,51 @@ class RollingBenchmark:
     def basic_task(self):
         """For fast training rolling"""
         if self.model_type == "gbdt":
-            conf_path = DIRNAME.parent.parent / "benchmarks" / "LightGBM" / "workflow_config_lightgbm_Alpha{}.yaml".format(
-                self.alpha)
+            conf_path = (
+                DIRNAME.parent.parent
+                / "benchmarks"
+                / "LightGBM"
+                / "workflow_config_lightgbm_Alpha{}.yaml".format(self.alpha)
+            )
             # dump the processed data on to disk for later loading to speed up the processing
-            filename = "lightgbm_alpha{}_handler_horizon{}.pkl".format(self.alpha, self.horizon)
+            filename = "lightgbm_alpha{}_handler_horizon{}.pkl".format(
+                self.alpha, self.horizon
+            )
         elif self.model_type == "linear":
-            conf_path = DIRNAME.parent.parent / "benchmarks" / "Linear" / "workflow_config_linear_Alpha{}.yaml".format(
-                self.alpha)
+            conf_path = (
+                DIRNAME.parent.parent
+                / "benchmarks"
+                / "Linear"
+                / "workflow_config_linear_Alpha{}.yaml".format(self.alpha)
+            )
             # dump the processed data on to disk for later loading to speed up the processing
-            filename = "linear_alpha{}_handler_horizon{}.pkl".format(self.alpha, self.horizon)
+            filename = "linear_alpha{}_handler_horizon{}.pkl".format(
+                self.alpha, self.horizon
+            )
         elif self.model_type == "mlp":
-            conf_path = DIRNAME.parent.parent / "benchmarks" / "MLP" / "workflow_config_mlp_Alpha{}.yaml".format(
-                self.alpha)
+            conf_path = (
+                DIRNAME.parent.parent
+                / "benchmarks"
+                / "MLP"
+                / "workflow_config_mlp_Alpha{}.yaml".format(self.alpha)
+            )
             # dump the processed data on to disk for later loading to speed up the processing
-            filename = "mlp_alpha{}_handler_horizon{}.pkl".format(self.alpha, self.horizon)
+            filename = "mlp_alpha{}_handler_horizon{}.pkl".format(
+                self.alpha, self.horizon
+            )
         else:
-            conf_path = DIRNAME.parent.parent / "benchmarks" / self.model_type / "workflow_config_{}_Alpha{}.yaml".format(
-                self.model_type.lower(), self.alpha)
+            conf_path = (
+                DIRNAME.parent.parent
+                / "benchmarks"
+                / self.model_type
+                / "workflow_config_{}_Alpha{}.yaml".format(
+                    self.model_type.lower(), self.alpha
+                )
+            )
             filename = "alpha{}_handler_horizon{}.pkl".format(self.alpha, self.horizon)
             # raise AssertionError("Model type is not supported!")
 
-        filename = f'{self.data_dir}_{self.market}_rank{self.rank_label}_{filename}'
+        filename = f"{self.data_dir}_{self.market}_rank{self.rank_label}_{filename}"
         h_path = DIRNAME.parent / "baseline" / filename
 
         with conf_path.open("r") as f:
@@ -105,38 +142,54 @@ class RollingBenchmark:
             "Ref($close, -{}) / Ref($close, -1) - 1".format(self.horizon + 1)
         ]
 
-        if self.market != 'csi300':
-            conf['task']['dataset']['kwargs']['handler']['kwargs']['instruments'] = self.market
-            if self.data_dir == 'us_data':
+        if self.market != "csi300":
+            conf["task"]["dataset"]["kwargs"]["handler"]["kwargs"][
+                "instruments"
+            ] = self.market
+            if self.data_dir == "us_data":
                 conf["task"]["dataset"]["kwargs"]["handler"]["kwargs"]["label"] = [
                     "Ref($close, -{}) / $close - 1".format(self.horizon)
                 ]
 
         batch_size = 5000
-        if self.market == 'csi100':
+        if self.market == "csi100":
             batch_size = 2000
-        elif self.market == 'csi500':
+        elif self.market == "csi500":
             batch_size = 8000
 
-        for k, v in {'early_stop': 8, 'batch_size': batch_size, 'lr': 0.001, 'seed': None}.items():
-            if k in conf['task']['model']['kwargs']:
-                conf['task']['model']['kwargs'][k] = v
-        if conf['task']['model']['class'] == 'TransformerModel':
-            conf['task']['model']['kwargs']['dim_feedforward'] = 32
-            conf['task']['model']['kwargs']['reg'] = 0
+        for k, v in {
+            "early_stop": 8,
+            "batch_size": batch_size,
+            "lr": 0.001,
+            "seed": None,
+        }.items():
+            if k in conf["task"]["model"]["kwargs"]:
+                conf["task"]["model"]["kwargs"][k] = v
+        if conf["task"]["model"]["class"] == "TransformerModel":
+            conf["task"]["model"]["kwargs"]["dim_feedforward"] = 32
+            conf["task"]["model"]["kwargs"]["reg"] = 0
 
         task = conf["task"]
 
         if not h_path.exists():
             h_conf = task["dataset"]["kwargs"]["handler"]
-            if not self.rank_label and not (self.model_type == 'gbdt' or self.alpha == 158):
-                proc = h_conf['kwargs']['learn_processors'][-1]
-                if isinstance(proc, str) and proc == 'CSRankNorm' or \
-                        isinstance(proc, dict) and proc['class'] == 'CSRankNorm':
-                    h_conf['kwargs']['learn_processors'] = h_conf['kwargs']['learn_processors'][:-1]
+            if not self.rank_label and not (
+                self.model_type == "gbdt" or self.alpha == 158
+            ):
+                proc = h_conf["kwargs"]["learn_processors"][-1]
+                if (
+                    isinstance(proc, str)
+                    and proc == "CSRankNorm"
+                    or isinstance(proc, dict)
+                    and proc["class"] == "CSRankNorm"
+                ):
+                    h_conf["kwargs"]["learn_processors"] = h_conf["kwargs"][
+                        "learn_processors"
+                    ][:-1]
                     print("Remove CSRankNorm")
-                    h_conf['kwargs']['learn_processors'].append(
-                        {"class": "CSZScoreNorm", "kwargs": {"fields_group": "label"}})
+                    h_conf["kwargs"]["learn_processors"].append(
+                        {"class": "CSZScoreNorm", "kwargs": {"fields_group": "label"}}
+                    )
 
             print(h_conf)
             h = init_instance_by_config(h_conf)
@@ -190,7 +243,7 @@ class RollingBenchmark:
                 "account": 100000000,
                 "benchmark": self.benchmark,
                 "exchange_kwargs": {
-                    "limit_threshold": None if self.data_dir == 'us_data' else 0.095,
+                    "limit_threshold": None if self.data_dir == "us_data" else 0.095,
                     "deal_price": "close",
                     "open_cost": 0.0005,
                     "close_cost": 0.0015,
@@ -198,9 +251,13 @@ class RollingBenchmark:
                 },
             },
         }
-        rec = R.get_exp(experiment_name=self.COMB_EXP).list_recorders(rtype=Experiment.RT_L)[0]
+        rec = R.get_exp(experiment_name=self.COMB_EXP).list_recorders(
+            rtype=Experiment.RT_L
+        )[0]
         SigAnaRecord(recorder=rec, skip_existing=True).generate()
-        PortAnaRecord(recorder=rec, config=backtest_config, skip_existing=True).generate()
+        PortAnaRecord(
+            recorder=rec, config=backtest_config, skip_existing=True
+        ).generate()
         # label = init_instance_by_config(self.basic_task()["dataset"], accept_types=Dataset).\
         #     prepare(segments="test", col_set="label", data_key=DataHandlerLP.DK_L)
         # if isinstance(label, TSDataSampler):
@@ -211,7 +268,9 @@ class RollingBenchmark:
         # rmse = np.sqrt(((label['pred'].to_numpy() - label['label'].to_numpy()) ** 2).mean())
         # mae = np.abs(label['pred'].to_numpy() - label['label'].to_numpy()).mean()
         # rec.log_metrics(rmse=rmse, mae=mae)
-        print(f"Your evaluation results can be found in the experiment named `{self.COMB_EXP}`.")
+        print(
+            f"Your evaluation results can be found in the experiment named `{self.COMB_EXP}`."
+        )
         return rec
 
     def run_all(self, task_l=None):
@@ -224,13 +283,19 @@ class RollingBenchmark:
         return rec
 
     def run_exp(self):
-        all_metrics = {k: [] for k in [
-            # 'rmse', 'mae',
-            'IC', 'ICIR', 'Rank IC', 'Rank ICIR',
-            '1day.excess_return_with_cost.annualized_return',
-            '1day.excess_return_with_cost.information_ratio',
-            '1day.excess_return_with_cost.max_drawdown'
-        ]}
+        all_metrics = {
+            k: []
+            for k in [
+                # 'rmse', 'mae',
+                "IC",
+                "ICIR",
+                "Rank IC",
+                "Rank ICIR",
+                "1day.excess_return_with_cost.annualized_return",
+                "1day.excess_return_with_cost.information_ratio",
+                "1day.excess_return_with_cost.max_drawdown",
+            ]
+        }
         test_time = []
         for i in range(10):
             np.random.seed(i + 43)
@@ -248,19 +313,20 @@ class RollingBenchmark:
             pprint(all_metrics)
 
         with R.start(
-                experiment_name=f"final_{self.data_dir}_{self.market}_{self.alpha}_{self.horizon}_{self.model_type}"):
+            experiment_name=f"final_{self.data_dir}_{self.market}_{self.alpha}_{self.horizon}_{self.model_type}"
+        ):
             R.save_objects(all_metrics=all_metrics)
             test_time = np.array(test_time)
             R.log_metrics(test_time=test_time)
-            print(f'Time cost: {test_time.mean()}')
+            print(f"Time cost: {test_time.mean()}")
             res = {}
             for k in all_metrics.keys():
                 v = np.array(all_metrics[k])
                 res[k] = [v.mean(), v.std()]
-                R.log_metrics(**{'final_' + k: res[k]})
+                R.log_metrics(**{"final_" + k: res[k]})
             pprint(res)
         test_time = np.array(test_time)
-        print(f'Time cost: {test_time.mean()}')
+        print(f"Time cost: {test_time.mean()}")
 
 
 if __name__ == "__main__":

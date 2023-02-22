@@ -12,6 +12,7 @@ from qlib.data.dataset.handler import DataHandlerLP
 
 import fire
 import sys
+
 DIRNAME = Path(__file__).absolute().resolve().parent
 sys.path.append(str(DIRNAME))
 sys.path.append(str(DIRNAME.parent.parent.parent))
@@ -23,44 +24,73 @@ from qlib.contrib.meta.incremental.model import CMAML
 
 
 class OKASA(Incremental):
-
-    def __init__(self, data_dir='cn_data', market='csi300', horizon=1, alpha=360, step=20, rank_label=True,
-                 forecast_model="linear", tag='', first_order=True):
-        super().__init__(data_dir=data_dir, market=market, horizon=horizon, alpha=alpha,
-                       step=step, rank_label=rank_label, forecast_model=forecast_model, tag=tag, first_order=first_order)
+    def __init__(
+        self,
+        data_dir="cn_data",
+        market="csi300",
+        horizon=1,
+        alpha=360,
+        step=20,
+        rank_label=True,
+        forecast_model="linear",
+        tag="",
+        first_order=True,
+    ):
+        super().__init__(
+            data_dir=data_dir,
+            market=market,
+            horizon=horizon,
+            alpha=alpha,
+            step=step,
+            rank_label=rank_label,
+            forecast_model=forecast_model,
+            tag=tag,
+            first_order=first_order,
+        )
 
     @property
     def meta_exp_name(self):
         return f"CMAML_{self.market}_{self.forecast_model}_alpha{self.alpha}_horizon{self.horizon}_step{self.step}_rank{self.rank_label}_{self.tag}"
 
-
     def dump_data(self):
         segments = self.task["dataset"]["kwargs"]["segments"]
 
         t = copy.deepcopy(self.task)
-        t['dataset']["kwargs"]["segments"]['train'] = (segments["train"][0], segments['test'][1])
-        ds = init_instance_by_config(t['dataset'], accept_types=Dataset)
-        data = ds.prepare("train", col_set=["feature", "label"], data_key=DataHandlerLP.DK_L)
-        if t['dataset']['class'] == 'TSDatasetH':
+        t["dataset"]["kwargs"]["segments"]["train"] = (
+            segments["train"][0],
+            segments["test"][1],
+        )
+        ds = init_instance_by_config(t["dataset"], accept_types=Dataset)
+        data = ds.prepare(
+            "train", col_set=["feature", "label"], data_key=DataHandlerLP.DK_L
+        )
+        if t["dataset"]["class"] == "TSDatasetH":
             data.config(fillna_type="ffill+bfill")  # process nan brought by dataloader
             # self.L = rolling_task['dataset']['kwargs']['step_len']
         # else:
         #     data = None
 
         rolling_task = self.rb.basic_task()
-        if 'pt_model_kwargs' in rolling_task['model']['kwargs'] and rolling_task['model']['class'] != 'DNNModelPytorch':
-            self.d_feat = rolling_task['model']['kwargs']['pt_model_kwargs']['input_dim']
-        elif 'd_feat' in rolling_task['model']['kwargs']:
-            self.d_feat = rolling_task['model']['kwargs']['d_feat']
+        if (
+            "pt_model_kwargs" in rolling_task["model"]["kwargs"]
+            and rolling_task["model"]["class"] != "DNNModelPytorch"
+        ):
+            self.d_feat = rolling_task["model"]["kwargs"]["pt_model_kwargs"][
+                "input_dim"
+            ]
+        elif "d_feat" in rolling_task["model"]["kwargs"]:
+            self.d_feat = rolling_task["model"]["kwargs"]["d_feat"]
         else:
             self.d_feat = 6 if self.alpha == 360 else 20
 
-        trunc_days = self.horizon if self.data_dir == 'us_data' else (self.horizon + 1)
+        trunc_days = self.horizon if self.data_dir == "us_data" else (self.horizon + 1)
         gen = RollingGen(step=self.step, rtype=RollingGen.ROLL_SD)
         segments = rolling_task["dataset"]["kwargs"]["segments"]
         train_begin = segments["train"][0]
         train_end = gen.ta.get(gen.ta.align_idx(train_begin) + gen.step - 1)
-        test_begin = gen.ta.get(gen.ta.align_idx(train_begin) + gen.step - 1 + trunc_days)
+        test_begin = gen.ta.get(
+            gen.ta.align_idx(train_begin) + gen.step - 1 + trunc_days
+        )
         test_end = segments["valid"][1]
         test_end = gen.ta.get(gen.ta.align_idx(test_end) - gen.step)
         # extra_begin = gen.ta.get(gen.ta.align_idx(train_end) + 1)
@@ -78,43 +108,57 @@ class OKASA(Incremental):
             # segments=0.7,  # keep test period consistent with the dataset yaml
             segments=seperate_point,
             # trunc_days=self.horizon+1,
-            task_mode='train',
+            task_mode="train",
         )
-        if self.forecast_model == 'MLP' and self.alpha == 158:
-            kwargs.update(task_mode='test')
+        if self.forecast_model == "MLP" and self.alpha == 158:
+            kwargs.update(task_mode="test")
         md_offline = MetaDatasetInc(data=data, **kwargs)
-        md_offline.meta_task_l = preprocess(md_offline.meta_task_l, d_feat=self.d_feat,
-                                     is_mlp=self.forecast_model == 'MLP', alpha=self.alpha,
-                                     step=self.step, H=self.horizon if self.data_dir == 'us_data' else (1+self.horizon),
-                                    need_permute=not self.forecast_model in ['TCN'])
-        self.L = md_offline.meta_task_l[0].get_meta_input()['X_test'].shape[1]
+        md_offline.meta_task_l = preprocess(
+            md_offline.meta_task_l,
+            d_feat=self.d_feat,
+            is_mlp=self.forecast_model == "MLP",
+            alpha=self.alpha,
+            step=self.step,
+            H=self.horizon if self.data_dir == "us_data" else (1 + self.horizon),
+            need_permute=not self.forecast_model in ["TCN"],
+        )
+        self.L = md_offline.meta_task_l[0].get_meta_input()["X_test"].shape[1]
 
         test_begin = segments["valid"][0]
         # train_end = gen.ta.get(gen.ta.align_idx(train_begin) + gen.step - 1)
         # test_begin = gen.ta.get(gen.ta.align_idx(train_begin) + gen.step - 1 + trunc_days)
         rolling_task["dataset"]["kwargs"]["segments"] = {
-            "test": (test_begin, segments['test'][1]),
+            "test": (test_begin, segments["test"][1]),
             # "extra": (extra_begin, extra_end),
             # "test": (test_begin, segments['test'][1]),
         }
         if trunc_days > 1:
             extra_end = gen.ta.get(gen.ta.align_idx(test_begin) - 1)
             extra_begin = gen.ta.get(gen.ta.align_idx(test_begin) - trunc_days + 1)
-            rolling_task["dataset"]["kwargs"]["segments"]["train"] = (extra_begin, extra_end)
+            rolling_task["dataset"]["kwargs"]["segments"]["train"] = (
+                extra_begin,
+                extra_end,
+            )
 
         kwargs.update(task_tpl=rolling_task, segments=0.0)
-        if self.forecast_model == 'MLP' and self.alpha == 158:
-            kwargs.update(task_mode='test')
-            data_I = ds.prepare("train", col_set=["feature", "label"], data_key=DataHandlerLP.DK_I)
+        if self.forecast_model == "MLP" and self.alpha == 158:
+            kwargs.update(task_mode="test")
+            data_I = ds.prepare(
+                "train", col_set=["feature", "label"], data_key=DataHandlerLP.DK_I
+            )
         else:
             data_I = None
         md_online = MetaDatasetInc(data=data, data_I=data_I, **kwargs)
-        md_online.meta_task_l = preprocess(md_online.meta_task_l, d_feat=self.d_feat,
-                                     is_mlp=self.forecast_model == 'MLP', alpha=self.alpha,
-                                     step=self.step, H=self.horizon if self.data_dir == 'us_data' else (1+self.horizon),
-                                    need_permute=not self.forecast_model in ['TCN'])
+        md_online.meta_task_l = preprocess(
+            md_online.meta_task_l,
+            d_feat=self.d_feat,
+            is_mlp=self.forecast_model == "MLP",
+            alpha=self.alpha,
+            step=self.step,
+            H=self.horizon if self.data_dir == "us_data" else (1 + self.horizon),
+            need_permute=not self.forecast_model in ["TCN"],
+        )
         return md_offline, md_online
-
 
     def offline_training(self, seed=43):
         """
@@ -123,21 +167,34 @@ class OKASA(Incremental):
         torch.manual_seed(seed)
         torch.cuda.manual_seed(seed)
 
-        if self.forecast_model in ['TCN', ] and self.alpha == 360:
-            model = Benchmark(data_dir=self.data_dir, model_type=self.forecast_model, alpha=self.alpha,
-                                  market=self.market, rank_label=self.rank_label).get_fitted_model(f"_{seed}")
+        if self.forecast_model in ["TCN",] and self.alpha == 360:
+            model = Benchmark(
+                data_dir=self.data_dir,
+                model_type=self.forecast_model,
+                alpha=self.alpha,
+                market=self.market,
+                rank_label=self.rank_label,
+            ).get_fitted_model(f"_{seed}")
         else:
             model = None
 
         # with R.start(experiment_name=self.meta_exp_name):
-        mm = CMAML(self.task, sample_num=8000 if self.market == 'csi500' else 5000,
-                   is_seq=self.is_rnn, d_feat=self.d_feat,
-                   alpha=self.alpha, lr=0.01,
-                   first_order=self.first_order, num_head=self.num_head, temperature=self.temperature,
-                   pretrained_model=model)
+        mm = CMAML(
+            self.task,
+            sample_num=8000 if self.market == "csi500" else 5000,
+            is_seq=self.is_rnn,
+            d_feat=self.d_feat,
+            alpha=self.alpha,
+            lr=0.01,
+            first_order=self.first_order,
+            num_head=self.num_head,
+            temperature=self.temperature,
+            pretrained_model=model,
+        )
         mm.fit(self.meta_dataset_offline)
-            # R.save_objects(model=mm)
+        # R.save_objects(model=mm)
         return mm
+
 
 if __name__ == "__main__":
     fire.Fire(OKASA)
