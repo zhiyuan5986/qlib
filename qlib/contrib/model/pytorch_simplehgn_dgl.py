@@ -24,7 +24,7 @@ class simpleHeteroGATConv(nn.Module):
             negative_slope=0.2,
             residual=False,
             activation=None,
-            allow_zero_in_degree=False,
+            allow_zero_in_degree=True,
             bias=False,
             alpha=0.0,
     ):
@@ -83,20 +83,16 @@ class simpleHeteroGATConv(nn.Module):
         nn.init.xavier_normal_(self.fc_e.weight, gain=gain)
         nn.init.normal_(self.edge_emb, 0, 1)
 
-    def set_allow_zero_in_degree(self, set_value):
-        self._allow_zero_in_degree = set_value
 
     def forward(self, graph, nfeat, res_attn=None):
         with graph.local_scope():
             funcs = {}
+            h = self.feat_drop(nfeat)
+            feat = self.fc(h).view(-1, self._num_heads, self._out_feats)
 
-            for ntype in graph.ntypes:
-                h = self.feat_drop(nfeat[ntype])
-                feat = self.fc(h).view(-1, self._num_heads, self._out_feats)
-
-                graph.nodes[ntype].data['ft'] = feat
-                if self.res_fc is not None:
-                    graph.nodes[ntype].data['h'] = h
+            graph.ndata['ft'] = feat
+            if self.res_fc is not None:
+                graph.ndata['h'] = h
 
             for src, etype, dst in graph.canonical_etypes:
                 feat_src = graph.nodes[src].data['ft']
@@ -126,38 +122,38 @@ class simpleHeteroGATConv(nn.Module):
 
             graph.multi_update_all(funcs, 'sum')
             rst = graph.ndata.pop('ft')
-            graph.edata.pop("el")
-            graph.edata.pop("er")
             if self.res_fc is not None:
-                for ntype in graph.ntypes:
-                    rst[ntype] = self.res_fc(graph.nodes[ntype].data['h']).view(
-                            graph.nodes[ntype].data['h'].shape[0], self._num_heads, self._out_feats) + rst[ntype]
-
-
+                rst = self.res_fc(graph.ndata['h']).view(
+                            graph.ndata['h'].shape[0], self._num_heads, self._out_feats) + rst
             if self.bias:
-                for ntype in graph.ntypes:
-                    rst[ntype] = rst[ntype] + self.bias_param
+                rst = rst + self.bias_param
 
             if self.activation:
-                for ntype in graph.ntypes:
-                    rst[ntype] = self.activation(rst[ntype])
+                rst = self.activation(rst)
             res_attn = {e: graph.edges[e].data["a"].detach() for e in graph.etypes}
-            graph.edata.pop("a")
             return rst, res_attn
 
 
 class SimpleHeteroHGN(HeterographModel):
+    '''
+    To implement a model, you need to specify the conv_layers and define forward_graph().
+    You may also want to specify fc_out() depending on the graph output.
+    '''
     def __init__(self, d_feat, edge_dim, num_etypes, num_hidden, num_layers, dropout,
-                 feat_drop,attn_drop,negative_slope,residual,alpha,base_model,num_graph_layer,heads=None):
+                 feat_drop,attn_drop,negative_slope,graph_layer_residual,alpha,base_model,num_graph_layer,heads=None, use_residual=False):
         super(SimpleHeteroHGN, self).__init__(
             base_model=base_model, d_feat=d_feat, hidden_size=num_hidden, num_layers=num_layers, dropout=dropout)
 
         self.num_layers = num_graph_layer
-        self.gat_layers = nn.ModuleList()
+        self.conv_layers = nn.ModuleList()
         self.activation = F.elu
 
-        in_dims = {'none': num_hidden, self.target_type: num_hidden}
-        self.gat_layers.append(
+        if not heads: # set default attention heads
+            heads = [1]*num_graph_layer
+
+        #in_dims = {'none': num_hidden, self.target_type: num_hidden}
+        in_dims = {self.target_type: num_hidden}
+        self.conv_layers.append(
             simpleHeteroGATConv(
                 edge_dim,
                 num_etypes,
@@ -172,9 +168,10 @@ class SimpleHeteroHGN(HeterographModel):
                 alpha=alpha,
             )
         )
+
         for l in range(1, self.num_layers):
             in_dims = {n: num_hidden * heads[l - 1] for n in in_dims}
-            self.gat_layers.append(
+            self.conv_layers.append(
                 simpleHeteroGATConv(
                     edge_dim,
                     num_etypes,
@@ -184,36 +181,43 @@ class SimpleHeteroHGN(HeterographModel):
                     feat_drop,
                     attn_drop,
                     negative_slope,
-                    residual,
+                    graph_layer_residual,
                     self.activation,
                     alpha=alpha,
                 )
             )
-        in_dims = num_hidden * heads[-2]
-        self.fc_out = nn.Linear(in_dims, 1)
+
+        self.use_residual = use_residual
+        if use_residual:
+            self.fc_out = nn.Linear(num_hidden * heads[-1]+num_hidden, 1)
+        else:
+            self.fc_out = nn.Linear(num_hidden * heads[-1], 1)
 
 
-    def get_attention(self, x, index):
-        # TODO
-        pass
-
-
-    def forward(self, x, index):
-        if not self.g:
-            raise ValueError("graph not specified")
-        # x: [N, F*T]
-        x = x.reshape(len(x), self.d_feat, -1)  # [N, F, T]
-        x = x.permute(0, 2, 1)  # [N, T, F]
-        out, _ = self.rnn(x)
-
-        h = {self.target_type: out[:, -1, :], 'none': self.none_feature}
+    def get_attention(self, graph):
+        h = graph.ndata['nfeat']
+        attn = []
         res_attn = None
-        subgraph = dgl.node_subgraph(self.g, index)
+        for i, layer in enumerate(self.conv_layers):
+            h, layer_attention = layer(graph, h, res_attn=res_attn) # [E,*,H,1]
+            attn.append(layer_attention)
+            h = h.flatten(1)
+        return attn
+
+    def forward_graph(self, h, index=None, return_subgraph=False):
+        if index:
+            subgraph = dgl.node_subgraph(self.g, {self.target_type: index})
+        else:
+            subgraph = self.g
+
+        res_attn = None
         for l in range(self.num_layers):
-            h, res_attn = self.gat_layers[l](subgraph, h, res_attn=res_attn)
-            h = {n: h[n].flatten(1) for n in h}
-        h = h[self.target_ntype]
-        return self.fc_out(h).squeeze()
+            h, res_attn = self.conv_layers[l](subgraph, h, res_attn=res_attn)
+            h = h.flatten(1)
+        if return_subgraph:
+            return h, subgraph
+        else:
+            return h
 
 
 

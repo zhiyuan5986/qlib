@@ -24,6 +24,7 @@ from ...contrib.model.pytorch_gru import GRUModel
 
 from qlib.contrib.model.pytorch_gats_dgl import GATModel
 from qlib.contrib.model.pytorch_simplehgn_dgl import SimpleHeteroHGN
+from qlib.contrib.model.pytorch_rsr_dgl import RSRModel
 
 class DailyBatchSamplerWithIndex(Sampler):
     def __init__(self, data_source, shuffle=True):
@@ -91,6 +92,7 @@ class Graphs(Model):
             rel_encoding=None,
             stock_name_list = None,
             use_residual = False,
+            num_graph_layer = 2,
             **kwargs
     ):
         super().__init__()
@@ -116,6 +118,7 @@ class Graphs(Model):
         self.seed = seed
         self.n_jobs = n_jobs
         self.stock_name_list = stock_name_list
+        self.num_graph_layer = num_graph_layer
 
         self.logger.info(
             "{}s parameters setting:"
@@ -163,25 +166,30 @@ class Graphs(Model):
                 num_layers=self.num_layers, # RNN layer
                 dropout=self.dropout,
                 base_model=self.base_model,
+                num_graph_layer=self.num_graph_layer,
                 use_residual=use_residual
             )
-        elif self.graph_model == 'simpleHGN': #TODO: please don't use it for now
+        elif self.graph_model == 'simpleHGN':
             self.model = SimpleHeteroHGN(
-                    d_feat=self.d_feat, edge_dim=self.hidden_size, num_etypes= rel_encoding.shape[-1],
+                    d_feat=self.d_feat, edge_dim=8, num_etypes= rel_encoding.shape[-1],
                     num_hidden=self.hidden_size,
                     num_layers=self.num_layers, # RNN layer
                     dropout = self.dropout,
                     feat_drop=0.5,
                     attn_drop=0.5,
                     negative_slope=0.05,
-                    residual=True,
+                    graph_layer_residual=True,
                     alpha=0.05,
                     base_model= self.base_model,
-                    num_graph_layer = 2,
-                    heads = [8]*self.num_layers
+                    num_graph_layer = self.num_graph_layer,
+                    #heads = [8]*self.num_graph_layer,
+                    use_residual=True
             )
-        elif self.graph_model == 'RSR': #TODO
-            pass
+
+        elif self.graph_model == 'RSR':
+            self.model = RSRModel(d_feat=self.d_feat, hidden_size=self.hidden_size, num_etypes=rel_encoding.shape[-1],
+                                  num_layers=self.num_layers, dropout=self.dropout, base_model=self.base_model,
+                                  use_residual=False)
 
 
         self.logger.info("model:\n{:}".format(self.graph_model))
@@ -367,6 +375,11 @@ class Graphs(Model):
         if self.use_gpu:
             torch.cuda.empty_cache()
 
+    def load_checkpoint(self, save_path):
+        best_param = torch.load(save_path, map_location=self.device)
+        self.model.load_state_dict(best_param)
+        self.fitted = True
+
     def predict(self, dataset: DatasetH, segment = "test"):
         if not self.fitted:
             raise ValueError("model is not fitted yet!")
@@ -407,6 +420,7 @@ class Graphs(Model):
         daily_index, daily_count, stocks_daily = self.get_daily_inter(x_test, shuffle=False)
         explanations = []
         scores = []
+        xsize = []
 
         for idx, count, stks in zip(daily_index, daily_count, stocks_daily):
             index = [self.stock_name_list.index(stk) for stk in stks]
@@ -416,6 +430,7 @@ class Graphs(Model):
             batch_explanations = {}
             batch_fidelity = 0
             index_to_explain = []
+            batch_graph_size = 0
             with torch.no_grad():
                 if stocks:
                     for stk in stocks:
@@ -444,21 +459,22 @@ class Graphs(Model):
 
                     batch_explanations[stk] = explanation # note the node index in explanation is in subgraph!
                     batch_fidelity += fidelity
+                    batch_graph_size += explanation_graph.num_nodes()
 
                     # Exemplary output
-                    if i<5:
-                        self.logger.info(f" {stk} explanation list: {batch_explanations[stk]}")
-
+                    '''if i<5:
+                        self.logger.info(f" {stk} explanation list: {batch_explanations[stk]}")'''
 
                 explanations.append(batch_explanations)
                 num_stock = len(batch_explanations.keys())
-                if num_stock==0:
-                    fidelity_score = 0
-                else:
+                if num_stock>0:
                     fidelity_score = batch_fidelity/num_stock
+                    graph_size = batch_graph_size/num_stock
                     scores.append(fidelity_score)
-                self.logger.info(f" Explain for {num_stock} stocks in batch, fidelity score {fidelity_score}*10^(-4)." )
-        self.logger.info(f" Overall fidelity score {sum(scores)/len(scores)}*10^(-4)..")
+                    xsize.append(graph_size)
+                self.logger.info(f" Explain for {num_stock} stocks in batch, fidelity score {fidelity_score}*10^(-4), xgraph size {graph_size}.." )
+        self.logger.info(f" Overall fidelity score {sum(scores)/len(scores)}*10^(-4).")
+        self.logger.info(f" Overall xgraph size {sum(xsize)/len(xsize)}.")
         return explanations, scores
 
 

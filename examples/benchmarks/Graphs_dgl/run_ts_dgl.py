@@ -19,6 +19,7 @@ from qlib.tests.config import CSI300_BENCH, CSI300_DATASET_CONFIG
 from qlib.contrib.graph import stock_concept_data, stock_stock_data
 from qlib.data import D
 from qlib.contrib.interpreter.attentionx import AttentionX
+from qlib.contrib.interpreter.xpath import xPath
 
 
 def load_graph(market, instrument, start_date, end_date, relation_source='industry'):
@@ -33,15 +34,15 @@ def load_graph(market, instrument, start_date, end_date, relation_source='indust
     if relation_source == 'stock-stock':
         return stock_stock_data.get_all_matrix(
             market, stocks_index_dict,
-            #data_path="D:/Code/myqlib/.qlib/qlib_data/graph_data/"
-            data_path='/home/zhangzexi/.qlib/qlib_data/graph_data/' # This is the data path on the server
+            data_path="D:/Code/myqlib/.qlib/qlib_data/graph_data/"
+            #data_path='/home/zhangzexi/.qlib/qlib_data/graph_data/' # This is the data path on the server
         ), stocks_sorted_list
     elif relation_source == 'industry':
         industry_dict = stock_concept_data.read_graph_dict(
             market,
             relation_name="SW_belongs_to",
-            #data_path="D:/Code/myqlib/.qlib/qlib_data/graph_data/",
-            data_path='/home/zhangzexi/.qlib/qlib_data/graph_data/'
+            data_path="D:/Code/myqlib/.qlib/qlib_data/graph_data/",
+            #data_path='/home/zhangzexi/.qlib/qlib_data/graph_data/'
         )
         return stock_concept_data.get_full_connection_matrix(
             industry_dict, stocks_index_dict
@@ -75,27 +76,7 @@ def make_config():
         "class": "Graphs",
         "module_path": "qlib.contrib.model.pytorch_ts_dgl",
         "kwargs": {
-            "graph_model": "GAT", # or 'simpleHGN'
-            "d_feat": 6,
-            "hidden_size": 64,
-            "num_layers": 1,
-            "loss": "mse",
-            "dropout": 0.7,
-            "n_epochs": 100,
-            "metric": "loss",
-            "base_model": "LSTM",
-            "use_residual": True, # Note that if use residual connection, the explanation fidelity can be near to zero.
-            "GPU": 1,
-            "lr": 1e-4,
-            "early_stop": 10,
-            "rel_encoding": rel_encoding,
-            "stock_name_list": stock_name_list
-        },
-    }
-    config['log'] = {"class": "Graphs",
-        "module_path": "qlib.contrib.model.pytorch_ts_dgl",
-        "kwargs": {
-            "graph_model": "GAT", # or 'simpleHGN'
+            "graph_model": "RSR", # 'GAT' or 'simpleHGN', 'RSR'
             "d_feat": 6,
             "hidden_size": 64,
             "num_layers": 1,
@@ -105,9 +86,31 @@ def make_config():
             "metric": "loss",
             "base_model": "LSTM",
             "use_residual": True,
-            "GPU": 1,
+            "GPU": 0,
             "lr": 1e-4,
-            "early_stop": 10}}
+            "early_stop": 10,
+            "rel_encoding": rel_encoding,
+            "stock_name_list": stock_name_list,
+            'num_graph_layer': 1
+        },
+    }
+    config['log'] = {"class": "Graphs",
+        "module_path": "qlib.contrib.model.pytorch_ts_dgl",
+        "kwargs": {
+            "graph_model": "RSR", # or 'simpleHGN'
+            "d_feat": 6,
+            "hidden_size": 64,
+            "num_layers": 1,
+            "loss": "mse",
+            "dropout": 0.7,
+            "n_epochs": 100,
+            "metric": "loss",
+            "base_model": "LSTM",
+            "use_residual": True,
+            "GPU": 0,
+            "lr": 1e-4,
+            "early_stop": 10,
+           "num_graph_layer":1}}
 
     dh_config = {
         'start_time': train_start_date, 'end_time': test_end_date,
@@ -188,8 +191,8 @@ def make_port_config(model, dataset):
 if __name__ == "__main__":
 
     # use default data
-    #provider_uri = "D:/Code/myqlib/.qlib/qlib_data/cn_data"  # target_dir
-    provider_uri = '/home/zhangzexi/.qlib/qlib_data/cn_data/'
+    provider_uri = "D:/Code/myqlib/.qlib/qlib_data/cn_data"  # target_dir
+    #provider_uri = '/home/zhangzexi/.qlib/qlib_data/cn_data/'
     GetData().qlib_data(target_dir=provider_uri, region=REG_CN, exists_skip=True)
     qlib.init(provider_uri=provider_uri, region=REG_CN)
 
@@ -205,9 +208,14 @@ if __name__ == "__main__":
 
 
     # start exp
-    with R.start(experiment_name="gats_dgl"):
+    with R.start(experiment_name="graph_model_dgl"):
         R.log_params(**flatten_dict(config['log']))
+
         model.fit(dataset)
+
+        #save_path = 'C:/Users/92553/tmp/tmpo820nos2'
+        #model.load_checkpoint(save_path=save_path)
+
         R.save_objects(**{"params.pkl": model})
 
         # prediction
@@ -225,14 +233,26 @@ if __name__ == "__main__":
         par.generate()
 
         # get attention explanation
-        explainer = AttentionX(graph_model='homograph', num_layers=1, device=model.device)
+        graph_model = 'heterograph' # for GAT, use 'homograph'
+        attn_explainer = AttentionX(graph_model=graph_model, num_layers=config['model']["kwargs"]['num_graph_layer'], device=model.device)
+        # the num_layers of explainers decide the neighborhood in which to find the explanations,
+        # usually its the same as
+        xpath_explainer = xPath(graph_model=graph_model, num_layers=config['model']["kwargs"]['num_graph_layer'], device=model.device)
 
-        explanation, scores = model.get_explanation(dataset, explainer)
-        config['log']['explainer'] = 'AttentionX'
+        explanation, scores = model.get_explanation(dataset, attn_explainer)
+        config['log']['explainer'] = 'attn'
         config['log']['explanation'] = explanation
         config['log']['scores'] = scores
         print('Saving explanations...')
-        with open("explanation", 'wb') as f:  # 打开文件
+        with open("rsr_attn_explanation", 'wb') as f:  # 打开文件
+            pickle.dump(config['log'], f)
+
+        explanation, scores = model.get_explanation(dataset, xpath_explainer)
+        config['log']['explainer'] = 'xPath'
+        config['log']['explanation'] = explanation
+        config['log']['scores'] = scores
+        print('Saving explanations...')
+        with open("rsr_xpath_explanation", 'wb') as f:  # 打开文件
             pickle.dump(config['log'], f)
 
 

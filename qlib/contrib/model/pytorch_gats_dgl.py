@@ -21,8 +21,6 @@ class GATModel(HomographModel):
             self.fc_out = nn.Linear(hidden_size*2, 1)
         else:
             self.fc_out = nn.Linear(hidden_size, 1)
-        self.leaky_relu = nn.LeakyReLU()
-        self.softmax = nn.Softmax(dim=1)
 
         self.num_graph_layer = num_graph_layer
         self.gat_layers = nn.ModuleList()
@@ -42,6 +40,7 @@ class GATModel(HomographModel):
                     activation=F.elu,
                 )
             )
+
         self.gat_layers.append(
             dglnn.GATConv(
                 hidden_size * heads[-2],
@@ -52,6 +51,14 @@ class GATModel(HomographModel):
                 activation=None,
             )
         )
+        self.reset_parameters()
+        for layer in self.gat_layers:
+            layer._allow_zero_in_degree = True
+        self._allow_zero_in_degree = True
+
+    def reset_parameters(self):
+        gain = nn.init.calculate_gain("relu")
+        nn.init.xavier_normal_(self.fc_out.weight, gain=gain)
 
     def get_attention(self, graph):
         h = graph.ndata['nfeat']
