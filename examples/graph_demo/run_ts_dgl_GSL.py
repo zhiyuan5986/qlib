@@ -18,7 +18,7 @@ from qlib.data import D
 from qlib import get_module_logger
 
 
-from utils import setup_seed, Logger, get_parser
+from GSL_utils import setup_seed, Logger, get_parser
 import os
 import pickle
 import numpy as np
