@@ -9,14 +9,13 @@ import sys
 import pandas as pd
 import fire
 
-
 DIRNAME = Path(__file__).absolute().resolve().parent
 sys.path.append(str(DIRNAME))
 sys.path.append(str(DIRNAME.parent.parent.parent))
 
 import qlib
 from qlib.workflow.record_temp import SigAnaRecord, PortAnaRecord
-from qlib.data.dataset import Dataset, TSDataSampler
+from qlib.data.dataset import Dataset
 from qlib.workflow.task.gen import RollingGen
 from qlib import auto_init
 from qlib.utils import init_instance_by_config
@@ -60,6 +59,8 @@ class Incremental:
         adapt_x=True,
         adapt_y=True,
         naive=False,
+        save=False,
+        reload_exp=None,
         begin_valid_epoch=20,
     ):
         """
@@ -99,7 +100,13 @@ class Incremental:
             if True, degrade to naive incremental baseline
         :param begin_valid_epoch:
             accelerate offline training by leaving out some valid epochs
+        :param save:
+            whether to save the checkpoints
+        :param reload_exp (str):
+            if None, train from scratch; otherwise, reload checkpoints from the previous experiment
         """
+        self.reload_exp = reload_exp
+        self.save = save
         self.data_dir = data_dir
         self.market = market
         if self.data_dir == "us_data":
@@ -150,8 +157,8 @@ class Incremental:
         )
         self.task = self.rb.basic_task()
         self.begin_valid_epoch = begin_valid_epoch
-        if self.forecast_model == "Transformer" and self.market == "csi500":
-            self.begin_valid_epoch = 40
+        # if self.forecast_model == "Transformer" and self.market == "csi500":
+        #     self.begin_valid_epoch = 40
 
     @property
     def meta_exp_name(self):
@@ -199,7 +206,6 @@ class Incremental:
             task_tpl=rolling_task,
             step=self.step,
             segments=seperate_point,
-            # trunc_days=self.horizon+1,
             task_mode="train",
         )
         if self.forecast_model == "MLP" and self.alpha == 158:
@@ -217,7 +223,6 @@ class Incremental:
 
         self.L = md_offline.meta_task_l[0].get_meta_input()["X_test"].shape[1]
         if self.need_flatten:
-            # self.L = self.L // self.d_feat
             self.d_feat = self.L
             self.L = 1
 
@@ -250,9 +255,6 @@ class Incremental:
         return md_offline, md_online
 
     def offline_training(self, seed=43):
-        """
-        training a meta model based on a simplified linear proxy model;
-        """
         torch.manual_seed(seed)
         torch.cuda.manual_seed(seed)
 
@@ -288,6 +290,10 @@ class Incremental:
         )
         if not (self.naive and model is not None):
             mm.fit(self.meta_dataset_offline)
+            if self.save:
+                print(f'Save checkpoint in Exp: {self.meta_exp_name + "_checkpoint"}')
+                with R.start(experiment_name=self.meta_exp_name + "_checkpoint"):
+                    R.save_objects(**{"framework": mm})
         if self.naive and model is None:
             bm = Benchmark(
                 data_dir=self.data_dir,
@@ -299,10 +305,9 @@ class Incremental:
             R.set_uri("../baseline/mlruns/")
             with R.start(experiment_name=bm.exp_name + f"_{seed}"):
                 model = init_instance_by_config(bm.basic_task()["model"])
-                model.model = mm.tn.model
+                model.model = mm.framework.model
                 R.save_objects(**{"params.pkl": model})
             R.set_uri("./mlruns/")
-            # R.save_objects(model=mm)
         return mm
 
     def online_training(self, meta_tasks_test, meta_model=None, tag=""):
@@ -329,7 +334,12 @@ class Incremental:
                 label_all = label_all.loc[test_begin:test_end]
             label_all = label_all.dropna(axis=0)
             mlp158 = self.forecast_model == "MLP" and self.alpha == 158
-            pred_y_all, ic = meta_model.inference(meta_tasks_test)
+            pred_y_all, losses = meta_model.inference(meta_tasks_test)
+            # tasks = []
+            # for loss, task in zip(losses, meta_tasks_test.meta_task_l):
+            #     segments = task.task["dataset"]["kwargs"]["segments"]
+            #     tasks.append({'loss': loss, 'train': segments['train'], 'test': segments['test']})
+            # R.save_objects(**{'task_list': tasks})
             if mlp158:
                 pred_y_all = pred_y_all.loc[test_begin:test_end]
                 label_all = label_all.loc[pred_y_all.index]
@@ -367,10 +377,10 @@ class Incremental:
             },
         }
         rec = R.get_exp(experiment_name=self.infer_exp_name).list_recorders(rtype=Experiment.RT_L)[0]
-        # rmse = np.sqrt(((pred_y_all['pred'].to_numpy() - pred_y_all['label'].to_numpy()) ** 2).mean())
-        # mae = np.abs(pred_y_all['pred'].to_numpy() - pred_y_all['label'].to_numpy()).mean()
-        # print('rmse:', rmse, 'mae', mae)
-        # rec.log_metrics(rmse=rmse, mae=mae)
+        mse = ((pred_y_all['pred'].to_numpy() - pred_y_all['label'].to_numpy()) ** 2).mean()
+        mae = np.abs(pred_y_all['pred'].to_numpy() - pred_y_all['label'].to_numpy()).mean()
+        print('mse:', mse, 'mae', mae)
+        rec.log_metrics(mse=mse, mae=mae)
         SigAnaRecord(recorder=rec, skip_existing=True).generate()
         PortAnaRecord(recorder=rec, config=backtest_config, skip_existing=True).generate()
         print(f"Your evaluation results can be found in the experiment named `{self.infer_exp_name}`.")
@@ -381,7 +391,7 @@ class Incremental:
         all_metrics = {
             k: []
             for k in [
-                # 'rmse', 'mae',
+                'mse', 'mae',
                 "IC",
                 "ICIR",
                 "Rank IC",
@@ -393,11 +403,19 @@ class Incremental:
         }
         train_time = []
         test_time = []
-        self.tag = str(time.time())
+        if not self.tag:
+            self.tag = str(time.time())
         for i in range(0, 10):
             start_time = time.time()
             np.random.seed(i)
-            mm = self.offline_training(seed=43 + i)
+            if self.reload_exp is not None:
+                rec = R.get_exp(experiment_name=self.reload_exp).list_recorders(rtype=Experiment.RT_L)[i]
+                mm: MetaModelInc = rec.load_object("framework")
+                mm.framework.lr_model = 0.001
+                mm.framework.opt.param_groups[0]['lr'] = self.lr_model
+                mm.opt.param_groups[0]['lr'] = self.lr
+            else:
+                mm = self.offline_training(seed=43 + i)
             train_time.append(time.time() - start_time)
             start_time = time.time()
             rec = self.online_training(self.meta_dataset_online, mm)

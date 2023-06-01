@@ -131,9 +131,17 @@ def preprocess(
         # meta_input['X_test'] = (meta_input['X_test'] - meta_input['test_mu']) / (meta_input['test_std'] + 1e-9)
 
     # if skip:
-    #     for i in skip:
-    #         for k in ['X', 'y']:
-    #             task_list[i+1].processed_meta_input[k] = task_list[i].processed_meta_input[k]
+    #     j = 0
+    #     for idx, i in enumerate(skip):
+    #         if i < j:
+    #             continue
+    #         j = i + 1
+    #         k = idx + 1
+    #         while j == skip[k]:
+    #             k += 1
+    #             j = skip[k]
+    #         for k in ['X_train', 'y_train']:
+    #             task_list[j].processed_meta_input[k] = task_list[i].processed_meta_input[k]
     #     task_list = [task_list[i] for i in range(len(task_list)) if i not in skip]
     return task_list
 

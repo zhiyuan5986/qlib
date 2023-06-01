@@ -12,10 +12,11 @@ import torch
 from torch import optim
 import torch.nn.functional as F
 import higher
+from . import higher_optim  # IMPORTANT, DO NOT DELETE
 
 from .utils import override_state
 from .dataset import MetaDatasetInc
-from .net import TeacherNet, ForecastModel, CoG
+from .net import DoubleAdapt, ForecastModel, CoG
 
 
 class MetaModelInc(MetaTaskModel):
@@ -23,7 +24,6 @@ class MetaModelInc(MetaTaskModel):
         self,
         task_config,
         lr=0.01,
-        lr_y=0.01,
         lr_model=0.001,
         lr_ma=0.001,
         reg=0.2,
@@ -42,7 +42,6 @@ class MetaModelInc(MetaTaskModel):
     ):
         self.task_config = task_config
         self.lr = lr
-        self.lr_y = lr_y
         self.lr_model = lr_model
         self.lr_ma = lr_ma
         self.first_order = first_order
@@ -57,7 +56,7 @@ class MetaModelInc(MetaTaskModel):
         self.lamda = 0.5
         self.num_head = num_head
         self.temperature = temperature
-        self.tn = TeacherNet(
+        self.framework = DoubleAdapt(
             task_config,
             num_head=num_head,
             temperature=temperature,
@@ -65,9 +64,9 @@ class MetaModelInc(MetaTaskModel):
             need_permute=self.alpha == 360,
             model=pretrained_model,
             seq_len=L,
-            lr=lr_ma,
+            lr=lr_model,
         )
-        self.opt = optim.Adam(self.tn.meta_params, lr=self.lr)
+        self.opt = optim.Adam(self.framework.meta_params, lr=self.lr)
         # self.opt = optim.Adam([{'params': self.tn.teacher_y.parameters(), 'lr': self.lr_y},
         #                        {'params': self.tn.teacher_x.parameters()}], lr=self.lr)
         self.begin_valid_epoch = begin_valid_epoch
@@ -78,14 +77,13 @@ class MetaModelInc(MetaTaskModel):
         meta_tasks_l = meta_dataset.prepare_tasks(phases)
 
         self.cnt = 0
-        self.tn.train()
+        self.framework.train()
         torch.set_grad_enabled(True)
         # run training
         best_ic, over_patience = -1e3, 8
         patience = over_patience
-        best_checkpoint = copy.deepcopy(self.tn.state_dict())
+        best_checkpoint = copy.deepcopy(self.framework.state_dict())
         for epoch in tqdm(range(300), desc="epoch"):
-            # self.opt = optim.Adam(self.tn.meta_params, lr=self.lr)
             for phase, task_list in zip(phases, meta_tasks_l):
                 if phase == "test":
                     if epoch < self.begin_valid_epoch:
@@ -98,20 +96,21 @@ class MetaModelInc(MetaTaskModel):
                         best_ic = ic
                         print("best ic:", best_ic)
                         patience = over_patience
-                        best_checkpoint = copy.deepcopy(self.tn.state_dict())
+                        best_checkpoint = copy.deepcopy(self.framework.state_dict())
                     # pre_ic = ic
             if patience <= 0:
                 # R.save_objects(**{"model.pkl": self.tn})
                 break
         self.fitted = True
-        self.tn.load_state_dict(best_checkpoint)
+        self.framework.load_state_dict(best_checkpoint)
 
     def run_epoch(self, phase, task_list):
         pred_y_all, mse_all = [], 0
+        losses = []
         indices = np.arange(len(task_list))
         if phase == "test":
-            checkpoint = copy.deepcopy(self.tn.state_dict())
-            checkpoint_opt = copy.deepcopy(self.tn.opt.state_dict())
+            checkpoint = copy.deepcopy(self.framework.state_dict())
+            checkpoint_opt = copy.deepcopy(self.framework.opt.state_dict())
             checkpoint_opt_meta = copy.deepcopy(self.opt.state_dict())
         elif phase == "train":
             np.random.shuffle(indices)
@@ -120,7 +119,7 @@ class MetaModelInc(MetaTaskModel):
             # torch.cuda.empty_cache()
             meta_input = task_list[i].get_meta_input()
             run_task_func = self.run_task_naive if self.naive else self.run_task
-            pred, mse = run_task_func(meta_input, phase)
+            pred, loss = run_task_func(meta_input, phase)
             if phase != "train":
                 test_idx = meta_input["test_idx"]
                 pred_y_all.append(
@@ -131,70 +130,60 @@ class MetaModelInc(MetaTaskModel):
                         }
                     )
                 )
-                # if phase == 'test':
-                #     mse_all += mse
+            # if phase == 'online':
+            #     print(loss)
+            #     losses.append(loss)
         if phase == "test":
-            self.tn.load_state_dict(checkpoint)
-            self.tn.opt.load_state_dict(checkpoint_opt)
+            self.framework.load_state_dict(checkpoint)
+            self.framework.opt.load_state_dict(checkpoint_opt)
             self.opt.load_state_dict(checkpoint_opt_meta)
         if phase != "train":
             pred_y_all = pd.concat(pred_y_all)
+        # if phase == 'online':
+        #     return pred_y_all, losses
         if phase == "test":
             ic = pred_y_all.groupby("datetime").apply(lambda df: df["pred"].corr(df["label"], method="pearson")).mean()
             print(ic)
             return pred_y_all, ic
-            # print(-mse_all)
-            return pred_y_all, -mse_all
         return pred_y_all, None
 
     def run_task(self, meta_input, phase):
 
-        self.tn.opt.zero_grad()
+        self.framework.opt.zero_grad()
         self.opt.zero_grad()
-        X = meta_input["X_train"].to(self.tn.device)
+        X = meta_input["X_train"].to(self.framework.device)
         with higher.innerloop_ctx(
-            self.tn.model,
-            self.tn.opt,
+            self.framework.model,
+            self.framework.opt,
             copy_initial_weights=False,
             track_higher_grads=not self.first_order,
-            # override={'lr': [self.lr_model]}
+            override={'lr': [self.lr_model]}
         ) as (fmodel, diffopt):
             with torch.backends.cudnn.flags(enabled=self.first_order or not self.is_rnn):
-                y_hat = self.tn(
-                    X,
-                    # meta_input['train_mu'], meta_input['train_std'],
-                    # meta_input['train_date_id'],
-                    model=fmodel,
-                    transform=self.adapt_x,
-                )
-        y = meta_input["y_train"].to(self.tn.device)
+                y_hat, _ = self.framework(X, model=fmodel, transform=self.adapt_x)
+        y = meta_input["y_train"].to(self.framework.device)
         if self.adapt_y:
             raw_y = y
-            y = self.tn.teacher_y(X, raw_y, inverse=False)
-        loss2 = self.tn.criterion(y_hat, y)
+            y = self.framework.teacher_y(X, raw_y, inverse=False)
+        loss2 = self.framework.criterion(y_hat, y)
         diffopt.step(loss2)
 
         if phase != "train" and "X_extra" in meta_input and meta_input["X_extra"].shape[0] > 0:
-            X_test = torch.cat([meta_input["X_extra"].to(self.tn.device), meta_input["X_test"].to(self.tn.device),], 0,)
-            y_test = torch.cat([meta_input["y_extra"].to(self.tn.device), meta_input["y_test"].to(self.tn.device),], 0,)
+            X_test = torch.cat([meta_input["X_extra"].to(self.framework.device), meta_input["X_test"].to(self.framework.device), ], 0, )
+            y_test = torch.cat([meta_input["y_extra"].to(self.framework.device), meta_input["y_test"].to(self.framework.device), ], 0, )
         else:
-            X_test = meta_input["X_test"].to(self.tn.device)
-            y_test = meta_input["y_test"].to(self.tn.device)
-        pred = self.tn(
-            X_test,
-            # meta_input['test_mu'], meta_input['test_std'],
-            # meta_input['test_date_id'],
-            model=fmodel,
-            transform=self.adapt_x,
-        )
+            X_test = meta_input["X_test"].to(self.framework.device)
+            y_test = meta_input["y_test"].to(self.framework.device)
+        pred, X_test_adapted = self.framework(X_test, model=fmodel, transform=self.adapt_x)
         mask_y = meta_input.get("mask_y")
         if self.adapt_y:
-            pred = self.tn.teacher_y(X_test, pred, inverse=True)
+            pred = self.framework.teacher_y(X_test, pred, inverse=True)
         if phase != "train":
             test_begin = len(meta_input["y_extra"]) if "y_extra" in meta_input else 0
             meta_end = test_begin + meta_input["meta_end"]
             output = pred[test_begin:].detach().cpu().numpy()
             X_test = X_test[:meta_end]
+            X_test_adapted = X_test_adapted[:meta_end]
             if mask_y is not None:
                 pred = pred[mask_y]
                 meta_end = sum(mask_y[:meta_end])
@@ -202,48 +191,55 @@ class MetaModelInc(MetaTaskModel):
             y_test = y_test[:meta_end]
         else:
             output = pred.detach().cpu().numpy()
-        loss = self.tn.criterion(pred, y_test)
+        loss = self.framework.criterion(pred, y_test)
         if self.adapt_y:
             if not self.first_order:
-                y = self.tn.teacher_y(X, raw_y, inverse=False)
+                y = self.framework.teacher_y(X, raw_y, inverse=False)
             loss_y = F.mse_loss(y, raw_y)
             if self.first_order:
                 with torch.no_grad():
-                    pred2 = self.tn(X_test if phase == "test" else X_test, model=None, transform=self.adapt_x,)
-                    pred2 = self.tn.teacher_y(X_test, pred2.detach(), inverse=True).detach()
-                    loss_old = self.tn.criterion(pred2.view_as(y_test), y_test)
+                    pred2, _ = self.framework(X_test_adapted, model=None, transform=False, )
+                    pred2 = self.framework.teacher_y(X_test, pred2, inverse=True).detach()
+                    loss_old = self.framework.criterion(pred2.view_as(y_test), y_test)
                 loss_y = (loss_old.item() - loss.item()) / self.sigma * loss_y + loss_y * self.reg
             else:
                 loss_y = loss_y * self.reg
             loss_y.backward()
-        # smoothing_weight = (1 - torch.exp(-self.lamda * loss.detach()))
-        # (loss * smoothing_weight).backward()
         loss.backward()
         if self.adapt_x or self.adapt_y:
             self.opt.step()
-        self.tn.opt.step()
-        # self.tn.model.load_state_dict(fmodel.state_dict())
-        # self.tn.opt.state = override_state(self.tn.opt.param_groups, diffopt)
+        self.framework.opt.step()
+        #     self.tn.model.load_state_dict(fmodel.state_dict())
+        #     self.tn.opt.state = override_state(self.tn.opt.param_groups, diffopt)
         return output, None
 
     def run_task_naive(self, meta_input, phase):
+        # if phase == 'online':
+        #     with torch.no_grad():
+        #         pred2 = self.tn(meta_input["X_test"].to(self.tn.device),
+        #                                 # meta_input['test_mu'] - meta_input['mu'], meta_input['test_std'] - meta_input['std'],
+        #                                 # meta_input['test_date_id'],
+        #                                 None, transform=False)[0]
+        #         loss_old = self.tn.criterion(pred2, meta_input['y_test'].to(self.tn.device))
         # if phase == 'train':
-        self.tn.opt.zero_grad()
-        y_hat = self.tn(meta_input["X_train"].to(self.tn.device), None, transform=False)
-        loss2 = self.tn.criterion(y_hat, meta_input["y_train"].to(self.tn.device))
+        self.framework.opt.zero_grad()
+        y_hat = self.framework(meta_input["X_train"].to(self.framework.device), None, transform=False)[0]
+        loss2 = self.framework.criterion(y_hat, meta_input["y_train"].to(self.framework.device))
         loss2.backward()
-        # torch.nn.utils.clip_grad_value_(self.tn.model.parameters(), 3.0)
-        self.tn.opt.step()
-        self.tn.opt.zero_grad()
+        self.framework.opt.step()
+        self.framework.opt.zero_grad()
         # else:
-        pred = self.tn(meta_input["X_test"].to(self.tn.device), None, transform=False)
+        pred = self.framework(meta_input["X_test"].to(self.framework.device), None, transform=False)[0]
+        # if self.phase == 'online':
+        #     loss_new = self.tn.criterion(pred, meta_input['y_test'].to(self.tn.device)).detach()
+        #     return pred.detach().cpu().numpy(), (loss_new - loss_old).item()
         with torch.no_grad():
-            mse = self.tn.criterion(pred, meta_input["y_test"].to(self.tn.device)).item()
+            mse = self.framework.criterion(pred, meta_input["y_test"].to(self.framework.device)).item()
         return pred.detach().cpu().numpy(), mse
 
     def inference(self, meta_dataset: MetaTaskDataset):
         meta_tasks_test = meta_dataset.prepare_tasks("test")
-        self.tn.train()
+        self.framework.train()
         pred_y_all, ic = self.run_epoch("online", meta_tasks_test)
         return pred_y_all, ic
 
@@ -294,7 +290,7 @@ class MetaCoG(MetaModelInc):
             y_test = meta_input["y_test"].to(self.tn.device)
 
         fmodel = higher.monkeypatch(self.tn.model, copy_initial_weights=True, track_higher_grads=not self.first_order,)
-        pred = self.tn(X_test, fmodel=fmodel, fmask=fmask, mask_y=meta_input.get("mask_y"))
+        pred = self.tn(X_test, fmodel=fmodel, fmask=fmask)
         if phase != "train":
             test_begin = len(meta_input["y_extra"]) if "y_extra" in meta_input else 0
             meta_end = test_begin + meta_input["meta_end"]
@@ -591,14 +587,9 @@ class CMAML:
         if loss1 - loss2 < self.gamma:
             self.fast_opt.step(loss1)
             self.fast_model.update_params([p.detach().requires_grad_() for p in self.fast_model.fast_params])
-            self.buffer_x = torch.cat([self.buffer_x, X.cpu()], 0)[-self.buffer_size :]
-            self.buffer_y = torch.cat([self.buffer_y, y.cpu()], 0)[-self.buffer_size :]
+            self.buffer_x = torch.cat([self.buffer_x[-self.buffer_size + len(X):], X.cpu()], 0)
+            self.buffer_y = torch.cat([self.buffer_y[-self.buffer_size + len(X):], y.cpu()], 0)
         else:
-            # if True:
-            # sample_idx = np.random.choice(np.arange(len(self.buffer_x)), min(self.sample_num * 2, len(self.buffer_x)),
-            #                               replace=False)
-            # sample_idx = torch.tensor(sample_idx)
-            # sample_x, sample_y = self.buffer_x[sample_idx].to(self.tn.device), self.buffer_y[sample_idx].to(self.tn.device)
             self.consolidate()
             with higher.innerloop_ctx(
                 self.tn.model, self.tn.opt, copy_initial_weights=False, track_higher_grads=False,
@@ -643,6 +634,7 @@ class CMAML:
         self.buffer_x, self.buffer_y = [], []
         pred_y_all = []
         self.fast_model = None
+        return self.meta_valid_epoch(meta_tasks_test)
         for task in meta_tasks_test:
             meta_input = task.get_meta_input()
             pred = self.run_cmaml_pap_task(meta_input)

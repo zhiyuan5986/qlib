@@ -41,6 +41,13 @@ from qlib.workflow.record_temp import PortAnaRecord, SigAnaRecord
 
 
 class RollingBenchmark:
+    """
+    **NOTE**
+    before running the example, please clean your previous results with following command
+    - `rm -r mlruns`
+
+    """
+
     def __init__(
         self,
         data_dir="cn_data",
@@ -241,7 +248,6 @@ class RollingBenchmark:
         else:
             label.columns = ['label']
         label['pred'] = preds.loc[label.index]
-        # rmse = np.sqrt(((label['pred'].to_numpy() - label['label'].to_numpy()) ** 2).mean())
         mse = ((label['pred'].to_numpy() - label['label'].to_numpy()) ** 2).mean()
         mae = np.abs(label['pred'].to_numpy() - label['label'].to_numpy()).mean()
         rec.log_metrics(mse=mse, mae=mae)
