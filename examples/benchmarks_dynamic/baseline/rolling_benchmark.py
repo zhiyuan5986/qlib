@@ -1,6 +1,19 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 from typing import Optional
+import time
+from pprint import pprint
+
+import numpy as np
+import torch
+
+from pathlib import Path
+import sys
+DIRNAME = Path(__file__).absolute().resolve().parent
+sys.path.append(str(DIRNAME.parent.parent.parent))
+
+import qlib
+from qlib.data.dataset import Dataset, DataHandlerLP, TSDataSampler
 from qlib.model.ens.ensemble import RollingEnsemble
 from qlib.utils import init_instance_by_config
 import fire
@@ -12,7 +25,7 @@ from tqdm.auto import tqdm
 from qlib.model.trainer import TrainerR
 from qlib.log import get_module_logger
 from qlib.utils.data import update_config
-from qlib.workflow import R
+from qlib.workflow import R, Experiment
 from qlib.tests.data import GetData
 
 DIRNAME = Path(__file__).absolute().resolve().parent
@@ -22,59 +35,98 @@ from qlib.workflow.record_temp import PortAnaRecord, SigAnaRecord
 
 
 class RollingBenchmark:
-    """
-    **NOTE**
-    before running the example, please clean your previous results with following command
-    - `rm -r mlruns`
-
-    """
-
     def __init__(
         self,
-        rolling_exp: str = "rolling_models",
-        model_type: str = "linear",
+        data_dir="cn_data",
+        market="csi300",
+        init_data=True,
+        model_type="linear",
+        step=20,
+        alpha="158",
+        horizon=1,
+        rank_label=True,
         h_path: Optional[str] = None,
         train_start: Optional[str] = None,
         test_end: Optional[str] = None,
         task_ext_conf: Optional[dict] = None,
     ) -> None:
-        """
-        Parameters
-        ----------
-        rolling_exp : str
-            The name for the experiments for rolling
-        model_type : str
-            The model to be boosted.
-        h_path : Optional[str]
-            the dumped data handler;
-        test_end : Optional[str]
-            the test end for the data. It is typically used together with the handler
-        train_start : Optional[str]
-            the train start for the data.  It is typically used together with the handler.
-        task_ext_conf : Optional[dict]
-            some option to update the
-        """
-        self.step = 20
-        self.horizon = 20
-        self.rolling_exp = rolling_exp
+        self.data_dir = data_dir
+        self.market = market
+        if init_data:
+            if data_dir == "cn_data":
+                GetData().qlib_data(target_dir="~/.qlib/qlib_data/cn_data", exists_skip=True)
+                auto_init()
+            else:
+                qlib.init(
+                    provider_uri="~/.qlib/qlib_data/" + data_dir, region="us" if self.data_dir == "us_data" else "cn",
+                )
+        self.step = step
+        self.horizon = horizon
+        # self.rolling_exp = rolling_exp
         self.model_type = model_type
         self.h_path = h_path
         self.train_start = train_start
         self.test_end = test_end
         self.logger = get_module_logger("RollingBenchmark")
         self.task_ext_conf = task_ext_conf
+        self.rank_label = rank_label
+        self.alpha = alpha
+        self.tag = ""
+        if self.data_dir == "us_data":
+            self.benchmark = "^gspc"
+        elif self.market == "csi500":
+            self.benchmark = "SH000905"
+        elif self.market == "csi100":
+            self.benchmark = "SH000903"
+        else:
+            self.benchmark = "SH000300"
+
+    @property
+    def rolling_exp(self):
+        return f"rolling_{self.data_dir}_{self.market}_{self.model_type}_alpha{self.alpha}_h{self.horizon}_step{self.step}_rank{self.rank_label}_{self.tag}"
+
+    @property
+    def COMB_EXP(self):
+        return "final_" + self.rolling_exp
 
     def basic_task(self):
         """For fast training rolling"""
         if self.model_type == "gbdt":
-            conf_path = DIRNAME.parent.parent / "benchmarks" / "LightGBM" / "workflow_config_lightgbm_Alpha158.yaml"
+            conf_path = (
+                DIRNAME.parent.parent
+                / "benchmarks"
+                / "LightGBM"
+                / "workflow_config_lightgbm_Alpha{}.yaml".format(self.alpha)
+            )
             # dump the processed data on to disk for later loading to speed up the processing
-            h_path = DIRNAME / "lightgbm_alpha158_handler_horizon{}.pkl".format(self.horizon)
+            filename = "lightgbm_alpha{}_handler_horizon{}.pkl".format(self.alpha, self.horizon)
         elif self.model_type == "linear":
-            conf_path = DIRNAME.parent.parent / "benchmarks" / "Linear" / "workflow_config_linear_Alpha158.yaml"
-            h_path = DIRNAME / "linear_alpha158_handler_horizon{}.pkl".format(self.horizon)
+            conf_path = (
+                DIRNAME.parent.parent
+                / "benchmarks"
+                / "Linear"
+                / "workflow_config_linear_Alpha{}.yaml".format(self.alpha)
+            )
+            # dump the processed data on to disk for later loading to speed up the processing
+            filename = "linear_alpha{}_handler_horizon{}.pkl".format(self.alpha, self.horizon)
+        elif self.model_type == "mlp":
+            conf_path = (
+                DIRNAME.parent.parent / "benchmarks" / "MLP" / "workflow_config_mlp_Alpha{}.yaml".format(self.alpha)
+            )
+            # dump the processed data on to disk for later loading to speed up the processing
+            filename = "mlp_alpha{}_handler_horizon{}.pkl".format(self.alpha, self.horizon)
         else:
-            raise AssertionError("Model type is not supported!")
+            conf_path = (
+                DIRNAME.parent.parent
+                / "benchmarks"
+                / self.model_type
+                / "workflow_config_{}_Alpha{}.yaml".format(self.model_type.lower(), self.alpha)
+            )
+            filename = "alpha{}_handler_horizon{}.pkl".format(self.alpha, self.horizon)
+            # raise AssertionError("Model type is not supported!")
+
+        filename = f"{self.data_dir}_{self.market}_rank{self.rank_label}_{filename}"
+        h_path = DIRNAME.parent / "baseline" / filename
 
         if self.h_path is not None:
             h_path = Path(self.h_path)
@@ -87,6 +139,26 @@ class RollingBenchmark:
             "Ref($close, -{}) / Ref($close, -1) - 1".format(self.horizon + 1)
         ]
 
+        if self.market != "csi300":
+            conf["task"]["dataset"]["kwargs"]["handler"]["kwargs"]["instruments"] = self.market
+            if self.data_dir == "us_data":
+                conf["task"]["dataset"]["kwargs"]["handler"]["kwargs"]["label"] = [
+                    "Ref($close, -{}) / $close - 1".format(self.horizon)
+                ]
+
+        batch_size = 5000
+        if self.market == "csi100":
+            batch_size = 2000
+        elif self.market == "csi500":
+            batch_size = 8000
+
+        for k, v in {"early_stop": 8, "batch_size": batch_size, "lr": 0.001, "seed": None,}.items():
+            if k in conf["task"]["model"]["kwargs"]:
+                conf["task"]["model"]["kwargs"][k] = v
+        if conf["task"]["model"]["class"] == "TransformerModel":
+            conf["task"]["model"]["kwargs"]["dim_feedforward"] = 32
+            conf["task"]["model"]["kwargs"]["reg"] = 0
+
         task = conf["task"]
 
         if self.task_ext_conf is not None:
@@ -94,6 +166,21 @@ class RollingBenchmark:
 
         if not h_path.exists():
             h_conf = task["dataset"]["kwargs"]["handler"]
+            if not self.rank_label and not (self.model_type == "gbdt" or self.alpha == 158):
+                proc = h_conf["kwargs"]["learn_processors"][-1]
+                if (
+                    isinstance(proc, str)
+                    and proc == "CSRankNorm"
+                    or isinstance(proc, dict)
+                    and proc["class"] == "CSRankNorm"
+                ):
+                    h_conf["kwargs"]["learn_processors"] = h_conf["kwargs"]["learn_processors"][:-1]
+                    print("Remove CSRankNorm")
+                    h_conf["kwargs"]["learn_processors"].append(
+                        {"class": "CSZScoreNorm", "kwargs": {"fields_group": "label"}}
+                    )
+
+            print(h_conf)
             h = init_instance_by_config(h_conf)
             h.to_pickle(h_path, dump_all=True)
 
@@ -123,8 +210,6 @@ class RollingBenchmark:
         trainer = TrainerR(experiment_name=self.rolling_exp)
         trainer(task_l)
 
-    COMB_EXP = "rolling"
-
     def ens_rolling(self):
         rc = RecorderCollector(
             experiment=self.rolling_exp,
@@ -134,30 +219,110 @@ class RollingBenchmark:
             artifacts_path={"pred": "pred.pkl", "label": "label.pkl"},
         )
         res = rc()
+
         with R.start(experiment_name=self.COMB_EXP):
             R.log_params(exp_name=self.rolling_exp)
             R.save_objects(**{"pred.pkl": res["pred"], "label.pkl": res["label"]})
+        return res["pred"]
 
-    def update_rolling_rec(self):
+    def update_rolling_rec(self, preds=None):
         """
         Evaluate the combined rolling results
         """
-        for _, rec in R.list_recorders(experiment_name=self.COMB_EXP).items():
-            for rt_cls in SigAnaRecord, PortAnaRecord:
-                rt = rt_cls(recorder=rec, skip_existing=True)
-                rt.generate()
+        backtest_config = {
+            "strategy": {
+                "class": "TopkDropoutStrategy",
+                "module_path": "qlib.contrib.strategy",
+                "kwargs": {"signal": "<PRED>", "topk": 50, "n_drop": 5},
+            },
+            "backtest": {
+                "start_time": None,
+                "end_time": None,
+                "account": 100000000,
+                "benchmark": self.benchmark,
+                "exchange_kwargs": {
+                    "limit_threshold": None if self.data_dir == "us_data" else 0.095,
+                    "deal_price": "close",
+                    "open_cost": 0.0005,
+                    "close_cost": 0.0015,
+                    "min_cost": 5,
+                },
+            },
+        }
+        rec = R.get_exp(experiment_name=self.COMB_EXP).list_recorders(rtype=Experiment.RT_L)[0]
+        SigAnaRecord(recorder=rec, skip_existing=True).generate()
+        PortAnaRecord(recorder=rec, config=backtest_config, skip_existing=True).generate()
+        label = init_instance_by_config(self.basic_task()["dataset"], accept_types=Dataset).\
+            prepare(segments="test", col_set="label", data_key=DataHandlerLP.DK_L)
+        if isinstance(label, TSDataSampler):
+            label = pd.DataFrame({'label': label.data_arr[:-1][:, 0]}, index=label.data_index)
+        else:
+            label.columns = ['label']
+        label['pred'] = preds.loc[label.index]
+        # rmse = np.sqrt(((label['pred'].to_numpy() - label['label'].to_numpy()) ** 2).mean())
+        mse = ((label['pred'].to_numpy() - label['label'].to_numpy()) ** 2).mean()
+        mae = np.abs(label['pred'].to_numpy() - label['label'].to_numpy()).mean()
+        rec.log_metrics(mse=mse, mae=mae)
         print(f"Your evaluation results can be found in the experiment named `{self.COMB_EXP}`.")
+        return rec
 
-    def run_all(self):
+    def run_all(self, task_l=None):
         # the results will be  save in mlruns.
         # 1) each rolling task is saved in rolling_models
-        self.train_rolling_tasks()
+        self.train_rolling_tasks(task_l)
         # 2) combined rolling tasks and evaluation results are saved in rolling
-        self.ens_rolling()
-        self.update_rolling_rec()
+        preds = self.ens_rolling()
+        rec = self.update_rolling_rec(preds)
+        return rec
+
+    def run_exp(self):
+        all_metrics = {
+            k: []
+            for k in [
+                'mse', 'mae',
+                "IC",
+                "ICIR",
+                "Rank IC",
+                "Rank ICIR",
+                "1day.excess_return_with_cost.annualized_return",
+                "1day.excess_return_with_cost.information_ratio",
+                "1day.excess_return_with_cost.max_drawdown",
+            ]
+        }
+        test_time = []
+        for i in range(10):
+            np.random.seed(i + 43)
+            torch.manual_seed(i + 43)
+            torch.cuda.manual_seed(i + 43)
+            start_time = time.time()
+            self.tag = str(time.time())
+            rec = self.run_all()
+            test_time.append(time.time() - start_time)
+            # exp = R.get_exp(experiment_name=self.COMB_EXP)
+            # rec = exp.list_recorders(rtype=exp.RT_L)[0]
+            metrics = rec.list_metrics()
+            for k in all_metrics.keys():
+                all_metrics[k].append(metrics[k])
+            pprint(all_metrics)
+
+        with R.start(
+            experiment_name=f"final_{self.data_dir}_{self.market}_{self.alpha}_{self.horizon}_{self.model_type}"
+        ):
+            R.save_objects(all_metrics=all_metrics)
+            test_time = np.array(test_time)
+            R.log_metrics(test_time=test_time)
+            print(f"Time cost: {test_time.mean()}")
+            res = {}
+            for k in all_metrics.keys():
+                v = np.array(all_metrics[k])
+                res[k] = [v.mean(), v.std()]
+                R.log_metrics(**{"final_" + k: res[k]})
+            pprint(res)
+        test_time = np.array(test_time)
+        print(f"Time cost: {test_time.mean()}")
 
 
 if __name__ == "__main__":
-    GetData().qlib_data(exists_skip=True)
-    auto_init()
+    # GetData().qlib_data(exists_skip=True)
+    # auto_init()
     fire.Fire(RollingBenchmark)

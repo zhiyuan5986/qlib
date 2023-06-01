@@ -386,5 +386,15 @@ class MetaDatasetDS(MetaTaskDataset):
                 return self.meta_task_l[train_task_n:]
             else:
                 raise NotImplementedError(f"This type of input is not supported")
+        elif isinstance(self.segments, str):
+            for i, t in enumerate(self.meta_task_l):
+                if t.task['dataset']['kwargs']['segments']['test'][-1]._date_repr >= self.segments:
+                    break
+            if segment == "train":
+                return self.meta_task_l[:i]
+            elif segment == "test":
+                return self.meta_task_l[i:]
+            else:
+                raise NotImplementedError(f"This type of input is not supported")
         else:
             raise NotImplementedError(f"This type of input is not supported")

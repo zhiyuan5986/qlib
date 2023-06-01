@@ -10,6 +10,7 @@ from tqdm.auto import tqdm
 import copy
 from typing import Union, List
 
+from ....data.dataset import TSDataSampler
 from ....model.meta.dataset import MetaTaskDataset
 from ....model.meta.model import MetaTaskModel
 from ....workflow import R
@@ -28,9 +29,12 @@ class TimeReweighter(Reweighter):
     def __init__(self, time_weight: pd.Series):
         self.time_weight = time_weight
 
-    def reweight(self, data: Union[pd.DataFrame, pd.Series]):
-        # TODO: handling TSDataSampler
-        w_s = pd.Series(1.0, index=data.index)
+    def reweight(self, data: Union[pd.DataFrame, pd.Series, TSDataSampler]):
+        if isinstance(data, TSDataSampler):
+            # TODO: handling TSDataSampler
+            w_s = pd.Series(1.0, index=data.data_index[data.start_idx:])
+        else:
+            w_s = pd.Series(1.0, index=data.index)
         for k, w in self.time_weight.items():
             w_s.loc[slice(*k)] = w
         logger.info(f"Reweighting result: {w_s}")
@@ -117,10 +121,12 @@ class MetaModelDS(MetaTaskModel):
         loss_l.setdefault(phase, []).append(running_loss)
 
         pred_y_all = pd.concat(pred_y_all)
-        ic = pred_y_all.groupby("datetime").apply(lambda df: df["pred"].corr(df["label"], method="spearman")).mean()
+        ic = pred_y_all.groupby("datetime").apply(lambda df: df["pred"].corr(df["label"], method="pearson")).mean()
 
         R.log_metrics(**{f"loss/{phase}": running_loss, "step": epoch})
         R.log_metrics(**{f"ic/{phase}": ic, "step": epoch})
+        print(ic)
+        return pred_y_all
 
     def fit(self, meta_dataset: MetaDatasetDS):
         """
