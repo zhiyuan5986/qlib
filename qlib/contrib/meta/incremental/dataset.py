@@ -16,6 +16,9 @@ from tqdm.auto import tqdm
 
 from .utils import get_data_from_seg, get_data_and_idx
 
+import psutil
+
+memory = psutil.virtual_memory()
 
 class MetaTaskInc:
     """Meta task for incremental learning"""
@@ -126,7 +129,7 @@ class MetaDatasetInc(MetaTaskDataset):
             If 'test', use data_I, especially for MLP on Alpha158 without dropping nan labels.
         """
         super().__init__(segments=segments)
-        self.task_tpl = deepcopy(task_tpl)  # FIXME: if the handler is shared, how to avoid the explosion of the memroy.
+        self.task_tpl = deepcopy_basic_type(task_tpl)
         self.trunc_days = trunc_days
         self.step = step
 
@@ -141,7 +144,7 @@ class MetaDatasetInc(MetaTaskDataset):
                     t["dataset"]["kwargs"]["segments"]["test"] = self.ta.shift(
                         t["dataset"]["kwargs"]["segments"]["test"], step=rolling_ext_days, rtype=RollingGen.ROLL_EX,
                     )
-            init_task_handler(task_tpl)
+            # init_task_handler(task_tpl)
         else:
             assert isinstance(task_tpl, list)
             task_iter = task_tpl
@@ -154,7 +157,7 @@ class MetaDatasetInc(MetaTaskDataset):
         for t in tqdm(task_iter, desc="creating meta tasks"):
             self.meta_task_l.append(MetaTaskInc(t, data=data, data_I=data_I, mode=task_mode))
             self.task_list.append(t)
-        assert len(self.meta_task_l) > 0, "No meta tasks found. Please check the data and setting"
+            assert len(self.meta_task_l) > 0, "No meta tasks found. Please check the data and setting"
 
     def _prepare_seg(self, segment: Text) -> List[MetaTaskInc]:
         if isinstance(self.segments, float):

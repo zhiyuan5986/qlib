@@ -118,6 +118,11 @@ class MetaModelInc(MetaTaskModel):
         for i in indices:
             # torch.cuda.empty_cache()
             meta_input = task_list[i].get_meta_input()
+            if not isinstance(meta_input['X_train'], torch.Tensor):
+                meta_input = {
+                    k: torch.tensor(v, device=self.framework.device, dtype=torch.float32) if 'idx' not in k else v
+                    for k, v in meta_input.items()
+                }
             run_task_func = self.run_task_naive if self.naive else self.run_task
             pred, loss = run_task_func(meta_input, phase)
             if phase != "train":
@@ -242,6 +247,7 @@ class MetaModelInc(MetaTaskModel):
         self.framework.train()
         pred_y_all, ic = self.run_epoch("online", meta_tasks_test)
         return pred_y_all, ic
+
 
 
 class MetaCoG(MetaModelInc):

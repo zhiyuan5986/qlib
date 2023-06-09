@@ -14,6 +14,7 @@ sys.path.append(str(DIRNAME))
 sys.path.append(str(DIRNAME.parent.parent.parent))
 
 import qlib
+from qlib.utils.data import deepcopy_basic_type
 from qlib.workflow.record_temp import SigAnaRecord, PortAnaRecord
 from qlib.data.dataset import Dataset
 from qlib.workflow.task.gen import RollingGen
@@ -43,6 +44,7 @@ class Incremental:
     def __init__(
         self,
         data_dir="cn_data",
+        root_path='~/.qlib/qlib_data/',
         market="csi300",
         horizon=1,
         alpha=360,
@@ -62,10 +64,14 @@ class Incremental:
         save=False,
         reload_exp=None,
         begin_valid_epoch=20,
+        preprocess_tensor=True,
+        use_extra=False
     ):
         """
         :param data_dir: str
-            source data dictionary under '~/.qlib/qlib_data/'
+            source data dictionary under root_path
+        :param root_path: str
+            the root path of source data. '~/.qlib/qlib_data/' by default.
         :param market: str
             'csi300' or 'csi500'
         :param horizon: int
@@ -104,6 +110,10 @@ class Incremental:
             whether to save the checkpoints
         :param reload_exp (str):
             if None, train from scratch; otherwise, reload checkpoints from the previous experiment
+        :param preprocess_tensor:
+            If False, transform each batch from `numpy.ndarray` to `torch.Tensor` (slow, not recommended)
+        :param use_extra:
+            If True, use extra segments for upper-level optimization (not recommended when step is large enough)
         """
         self.reload_exp = reload_exp
         self.save = save
@@ -121,15 +131,13 @@ class Incremental:
         else:
             self.benchmark = "SH000300"
         if data_dir == "cn_data":
-            GetData().qlib_data(target_dir="~/.qlib/qlib_data/cn_data", exists_skip=True)
+            GetData().qlib_data(target_dir=root_path + "cn_data", exists_skip=True)
             auto_init()
         else:
             qlib.init(
-                provider_uri="~/.qlib/qlib_data/" + data_dir, region="us" if self.data_dir == "us_data" else "cn",
+                provider_uri=root_path + data_dir, region="us" if self.data_dir == "us_data" else "cn",
             )
         self.step = step
-        # NOTE:
-        # the horizon must match the meaning in the base task template
         self.horizon = horizon
         self.forecast_model = forecast_model  # downstream forecasting models' type
         self.alpha = alpha
@@ -157,8 +165,8 @@ class Incremental:
         )
         self.task = self.rb.basic_task()
         self.begin_valid_epoch = begin_valid_epoch
-        # if self.forecast_model == "Transformer" and self.market == "csi500":
-        #     self.begin_valid_epoch = 40
+        self.preprocess_tensor = preprocess_tensor
+        self.use_extra = use_extra
 
     @property
     def meta_exp_name(self):
@@ -186,21 +194,23 @@ class Incremental:
             self.d_feat = 6 if self.alpha == 360 else 20
 
         trunc_days = self.horizon if self.data_dir == "us_data" else (self.horizon + 1)
-        gen = RollingGen(step=self.step, rtype=RollingGen.ROLL_SD)
+        gen = RollingGen(step=self.step, rtype=RollingGen.ROLL_SD, task_copy_func=deepcopy_basic_type)
         segments = rolling_task["dataset"]["kwargs"]["segments"]
         train_begin = segments["train"][0]
         train_end = gen.ta.get(gen.ta.align_idx(train_begin) + gen.step - 1)
         test_begin = gen.ta.get(gen.ta.align_idx(train_begin) + gen.step - 1 + trunc_days)
         test_end = rolling_task["dataset"]["kwargs"]["segments"]["valid"][1]
-        # extra_begin = gen.ta.get(gen.ta.align_idx(train_end) + 1)
-        # extra_end = gen.ta.get(gen.ta.align_idx(test_begin) - 1)
+        extra_begin = gen.ta.get(gen.ta.align_idx(train_end) + 1)
+        extra_end = gen.ta.get(gen.ta.align_idx(test_begin) - 1)
         test_end = gen.ta.get(gen.ta.align_idx(test_end) - gen.step)
         seperate_point = str(rolling_task["dataset"]["kwargs"]["segments"]["valid"][0])
         rolling_task["dataset"]["kwargs"]["segments"] = {
             "train": (train_begin, train_end),
-            # "extra": (extra_begin, extra_end),
             "test": (test_begin, test_end),
         }
+        if self.use_extra:
+            rolling_task["dataset"]["kwargs"]["segments"]["extra"] = (extra_begin, extra_end)
+
 
         kwargs = dict(
             task_tpl=rolling_task,
@@ -219,6 +229,7 @@ class Incremental:
             step=self.step,
             H=self.horizon if self.data_dir == "us_data" else (1 + self.horizon),
             need_flatten=self.need_flatten,
+            to_tensor=self.preprocess_tensor
         )
 
         self.L = md_offline.meta_task_l[0].get_meta_input()["X_test"].shape[1]
@@ -229,13 +240,15 @@ class Incremental:
         train_begin = segments["valid"][0]
         train_end = gen.ta.get(gen.ta.align_idx(train_begin) + gen.step - 1)
         test_begin = gen.ta.get(gen.ta.align_idx(train_begin) + gen.step - 1 + trunc_days)
-        # extra_begin = gen.ta.get(gen.ta.align_idx(train_end) + 1)
-        # extra_end = gen.ta.get(gen.ta.align_idx(test_begin) - 1)
+        extra_begin = gen.ta.get(gen.ta.align_idx(train_end) + 1)
+        extra_end = gen.ta.get(gen.ta.align_idx(test_begin) - 1)
         rolling_task["dataset"]["kwargs"]["segments"] = {
             "train": (train_begin, train_end),
-            # "extra": (extra_begin, extra_end),
             "test": (test_begin, segments["test"][1]),
         }
+        if self.use_extra:
+            rolling_task["dataset"]["kwargs"]["segments"]["extra"] = (extra_begin, extra_end)
+
         kwargs.update(task_tpl=rolling_task, segments=0.0)
         if self.forecast_model == "MLP" and self.alpha == 158:
             kwargs.update(task_mode="test")
@@ -251,6 +264,7 @@ class Incremental:
             step=self.step,
             H=self.horizon if self.data_dir == "us_data" else (1 + self.horizon),
             need_flatten=self.need_flatten,
+            to_tensor=self.preprocess_tensor
         )
         return md_offline, md_online
 
@@ -319,7 +333,7 @@ class Incremental:
             meta_model: MetaModelInc = meta_model
 
         step = self.step
-        gen = RollingGen(step=step, rtype=RollingGen.ROLL_SD)
+        gen = RollingGen(step=step, rtype=RollingGen.ROLL_SD, task_copy_func=deepcopy_basic_type)
         segments = self.task["dataset"]["kwargs"]["segments"]
         test_begin, test_end = segments["test"]
         test_begin = gen.ta.get(gen.ta.align_idx(test_begin))
@@ -398,9 +412,12 @@ class Incremental:
                 "Rank ICIR",
                 "1day.excess_return_with_cost.annualized_return",
                 "1day.excess_return_with_cost.information_ratio",
-                "1day.excess_return_with_cost.max_drawdown",
+                # "1day.excess_return_with_cost.max_drawdown",
             ]
         }
+        if self.rank_label:
+            all_metrics.pop('IC')
+            all_metrics.pop('ICIR')
         train_time = []
         test_time = []
         if not self.tag:
@@ -409,7 +426,7 @@ class Incremental:
             start_time = time.time()
             np.random.seed(i)
             if self.reload_exp is not None:
-                rec = R.get_exp(experiment_name=self.reload_exp).list_recorders(rtype=Experiment.RT_L)[i]
+                rec = R.get_exp(experiment_name=self.reload_exp + '_checkpoint').list_recorders(rtype=Experiment.RT_L)[i]
                 mm: MetaModelInc = rec.load_object("framework")
                 mm.framework.lr_model = 0.001
                 mm.framework.opt.param_groups[0]['lr'] = self.lr_model
