@@ -1,32 +1,31 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
+from typing import Optional
 import time
 from pprint import pprint
-from typing import Callable, List
 
 import numpy as np
-import pandas as pd
 import torch
 
+from pathlib import Path
+import sys
+DIRNAME = Path(__file__).absolute().resolve().parent
+sys.path.append(str(DIRNAME.parent.parent.parent))
+
 import qlib
-
-from qlib.config import C
-
-from qlib.data.dataset.weight import Reweighter
-
 from qlib.data.dataset import Dataset, DataHandlerLP, TSDataSampler
-
-from qlib.model import Model
-
 from qlib.model.ens.ensemble import RollingEnsemble
-from qlib.utils import init_instance_by_config, auto_filter_kwargs, fill_placeholder
+from qlib.utils import init_instance_by_config
 import fire
 import yaml
-from qlib import auto_init, get_module_logger
+import pandas as pd
+from qlib import auto_init
 from pathlib import Path
 from tqdm.auto import tqdm
-from qlib.model.trainer import TrainerR, _log_task_info
-from qlib.workflow import R, Recorder, Experiment
+from qlib.model.trainer import TrainerR
+from qlib.log import get_module_logger
+from qlib.utils.data import update_config
+from qlib.workflow import R, Experiment
 from qlib.tests.data import GetData
 
 DIRNAME = Path(__file__).absolute().resolve().parent
@@ -46,6 +45,10 @@ class RollingBenchmark:
         alpha="158",
         horizon=1,
         rank_label=True,
+        h_path: Optional[str] = None,
+        train_start: Optional[str] = None,
+        test_end: Optional[str] = None,
+        task_ext_conf: Optional[dict] = None,
     ) -> None:
         self.data_dir = data_dir
         self.market = market
@@ -61,6 +64,11 @@ class RollingBenchmark:
         self.horizon = horizon
         # self.rolling_exp = rolling_exp
         self.model_type = model_type
+        self.h_path = h_path
+        self.train_start = train_start
+        self.test_end = test_end
+        self.logger = get_module_logger("RollingBenchmark")
+        self.task_ext_conf = task_ext_conf
         self.rank_label = rank_label
         self.alpha = alpha
         self.tag = ""
@@ -120,6 +128,9 @@ class RollingBenchmark:
         filename = f"{self.data_dir}_{self.market}_rank{self.rank_label}_{filename}"
         h_path = DIRNAME.parent / "baseline" / filename
 
+        if self.h_path is not None:
+            h_path = Path(self.h_path)
+
         with conf_path.open("r") as f:
             conf = yaml.safe_load(f)
 
@@ -150,6 +161,9 @@ class RollingBenchmark:
 
         task = conf["task"]
 
+        if self.task_ext_conf is not None:
+            task = update_config(task, self.task_ext_conf)
+
         if not h_path.exists():
             h_conf = task["dataset"]["kwargs"]["handler"]
             if not self.rank_label and not (self.model_type == "gbdt" or self.alpha == 158):
@@ -172,6 +186,15 @@ class RollingBenchmark:
 
         task["dataset"]["kwargs"]["handler"] = f"file://{h_path}"
         task["record"] = ["qlib.workflow.record_temp.SignalRecord"]
+
+        if self.train_start is not None:
+            seg = task["dataset"]["kwargs"]["segments"]["train"]
+            task["dataset"]["kwargs"]["segments"]["train"] = pd.Timestamp(self.train_start), seg[1]
+
+        if self.test_end is not None:
+            seg = task["dataset"]["kwargs"]["segments"]["test"]
+            task["dataset"]["kwargs"]["segments"]["test"] = seg[0], pd.Timestamp(self.test_end)
+        self.logger.info(task)
         return task
 
     def create_rolling_tasks(self):
@@ -229,16 +252,17 @@ class RollingBenchmark:
         rec = R.get_exp(experiment_name=self.COMB_EXP).list_recorders(rtype=Experiment.RT_L)[0]
         SigAnaRecord(recorder=rec, skip_existing=True).generate()
         PortAnaRecord(recorder=rec, config=backtest_config, skip_existing=True).generate()
-        # label = init_instance_by_config(self.basic_task()["dataset"], accept_types=Dataset).\
-        #     prepare(segments="test", col_set="label", data_key=DataHandlerLP.DK_L)
-        # if isinstance(label, TSDataSampler):
-        #     label = pd.DataFrame({'label': label.data_arr[:-1][:, 0]}, index=label.data_index)
-        # else:
-        #     label.columns = ['label']
-        # label['pred'] = preds.loc[label.index]
+        label = init_instance_by_config(self.basic_task()["dataset"], accept_types=Dataset).\
+            prepare(segments="test", col_set="label", data_key=DataHandlerLP.DK_L)
+        if isinstance(label, TSDataSampler):
+            label = pd.DataFrame({'label': label.data_arr[:-1][:, 0]}, index=label.data_index)
+        else:
+            label.columns = ['label']
+        label['pred'] = preds.loc[label.index]
         # rmse = np.sqrt(((label['pred'].to_numpy() - label['label'].to_numpy()) ** 2).mean())
-        # mae = np.abs(label['pred'].to_numpy() - label['label'].to_numpy()).mean()
-        # rec.log_metrics(rmse=rmse, mae=mae)
+        mse = ((label['pred'].to_numpy() - label['label'].to_numpy()) ** 2).mean()
+        mae = np.abs(label['pred'].to_numpy() - label['label'].to_numpy()).mean()
+        rec.log_metrics(mse=mse, mae=mae)
         print(f"Your evaluation results can be found in the experiment named `{self.COMB_EXP}`.")
         return rec
 
@@ -255,7 +279,7 @@ class RollingBenchmark:
         all_metrics = {
             k: []
             for k in [
-                # 'rmse', 'mae',
+                'mse', 'mae',
                 "IC",
                 "ICIR",
                 "Rank IC",

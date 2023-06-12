@@ -123,13 +123,13 @@ class OKASA(Incremental):
             # "extra": (extra_begin, extra_end),
             # "test": (test_begin, segments['test'][1]),
         }
-        if trunc_days > 1:
-            extra_end = gen.ta.get(gen.ta.align_idx(test_begin) - 1)
-            extra_begin = gen.ta.get(gen.ta.align_idx(test_begin) - trunc_days + 1)
-            rolling_task["dataset"]["kwargs"]["segments"]["train"] = (
-                extra_begin,
-                extra_end,
-            )
+        # if trunc_days > 1:
+        #     extra_end = gen.ta.get(gen.ta.align_idx(test_begin) - 1)
+        #     extra_begin = gen.ta.get(gen.ta.align_idx(test_begin) - trunc_days + 1)
+        #     rolling_task["dataset"]["kwargs"]["segments"]["train"] = (
+        #         extra_begin,
+        #         extra_end,
+        #     )
 
         kwargs.update(task_tpl=rolling_task, segments=0.0)
         if self.forecast_model == "MLP" and self.alpha == 158:
@@ -151,7 +151,7 @@ class OKASA(Incremental):
 
     def offline_training(self, seed=43):
         """
-        training a src model based on a simplified linear proxy model;
+        training a meta model based on a simplified linear proxy model;
         """
         torch.manual_seed(seed)
         torch.cuda.manual_seed(seed)
@@ -174,7 +174,6 @@ class OKASA(Incremental):
             is_seq=self.is_rnn,
             d_feat=self.d_feat,
             alpha=self.alpha,
-            lr=0.01,
             first_order=self.first_order,
             num_head=self.num_head,
             temperature=self.temperature,

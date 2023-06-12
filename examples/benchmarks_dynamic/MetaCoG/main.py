@@ -1,16 +1,17 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 from pathlib import Path
+import sys
+DIRNAME = Path(__file__).absolute().resolve().parent
+sys.path.append(str(DIRNAME))
+sys.path.append(str(DIRNAME.parent.parent.parent))
+
 import torch
 from qlib.utils import init_instance_by_config
 from qlib.workflow import R, Experiment
 from qlib.contrib.meta.incremental.model import MetaCoG
 import fire
-import sys
 
-DIRNAME = Path(__file__).absolute().resolve().parent
-sys.path.append(str(DIRNAME))
-sys.path.append(str(DIRNAME.parent.parent.parent))
 from examples.benchmarks_dynamic.incremental.main import Incremental
 from examples.benchmarks_dynamic.baseline.benchmark import Benchmark
 
@@ -42,7 +43,7 @@ class CML(Incremental):
             first_order=first_order,
         )
 
-    def train_meta_model(self, seed=43):
+    def offline_training(self, seed=43):
         torch.manual_seed(seed)
         torch.cuda.manual_seed(seed)
 

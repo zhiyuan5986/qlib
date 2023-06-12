@@ -9,14 +9,14 @@ import sys
 import pandas as pd
 import fire
 
-
 DIRNAME = Path(__file__).absolute().resolve().parent
 sys.path.append(str(DIRNAME))
 sys.path.append(str(DIRNAME.parent.parent.parent))
 
 import qlib
+from qlib.utils.data import deepcopy_basic_type
 from qlib.workflow.record_temp import SigAnaRecord, PortAnaRecord
-from qlib.data.dataset import Dataset, TSDataSampler
+from qlib.data.dataset import Dataset
 from qlib.workflow.task.gen import RollingGen
 from qlib import auto_init
 from qlib.utils import init_instance_by_config
@@ -44,6 +44,7 @@ class Incremental:
     def __init__(
         self,
         data_dir="cn_data",
+        root_path='~/.qlib/qlib_data/',
         market="csi300",
         horizon=1,
         alpha=360,
@@ -60,11 +61,17 @@ class Incremental:
         adapt_x=True,
         adapt_y=True,
         naive=False,
+        save=False,
+        reload_exp=None,
         begin_valid_epoch=20,
+        preprocess_tensor=True,
+        use_extra=False
     ):
         """
         :param data_dir: str
-            source data dictionary under '~/.qlib/qlib_data/'
+            source data dictionary under root_path
+        :param root_path: str
+            the root path of source data. '~/.qlib/qlib_data/' by default.
         :param market: str
             'csi300' or 'csi500'
         :param horizon: int
@@ -99,7 +106,17 @@ class Incremental:
             if True, degrade to naive incremental baseline
         :param begin_valid_epoch:
             accelerate offline training by leaving out some valid epochs
+        :param save:
+            whether to save the checkpoints
+        :param reload_exp (str):
+            if None, train from scratch; otherwise, reload checkpoints from the previous experiment
+        :param preprocess_tensor:
+            If False, transform each batch from `numpy.ndarray` to `torch.Tensor` (slow, not recommended)
+        :param use_extra:
+            If True, use extra segments for upper-level optimization (not recommended when step is large enough)
         """
+        self.reload_exp = reload_exp
+        self.save = save
         self.data_dir = data_dir
         self.market = market
         if self.data_dir == "us_data":
@@ -114,15 +131,13 @@ class Incremental:
         else:
             self.benchmark = "SH000300"
         if data_dir == "cn_data":
-            GetData().qlib_data(target_dir="~/.qlib/qlib_data/cn_data", exists_skip=True)
+            GetData().qlib_data(target_dir=root_path + "cn_data", exists_skip=True)
             auto_init()
         else:
             qlib.init(
-                provider_uri="~/.qlib/qlib_data/" + data_dir, region="us" if self.data_dir == "us_data" else "cn",
+                provider_uri=root_path + data_dir, region="us" if self.data_dir == "us_data" else "cn",
             )
         self.step = step
-        # NOTE:
-        # the horizon must match the meaning in the base task template
         self.horizon = horizon
         self.forecast_model = forecast_model  # downstream forecasting models' type
         self.alpha = alpha
@@ -150,8 +165,8 @@ class Incremental:
         )
         self.task = self.rb.basic_task()
         self.begin_valid_epoch = begin_valid_epoch
-        if self.forecast_model == "Transformer" and self.market == "csi500":
-            self.begin_valid_epoch = 40
+        self.preprocess_tensor = preprocess_tensor
+        self.use_extra = use_extra
 
     @property
     def meta_exp_name(self):
@@ -179,27 +194,28 @@ class Incremental:
             self.d_feat = 6 if self.alpha == 360 else 20
 
         trunc_days = self.horizon if self.data_dir == "us_data" else (self.horizon + 1)
-        gen = RollingGen(step=self.step, rtype=RollingGen.ROLL_SD)
+        gen = RollingGen(step=self.step, rtype=RollingGen.ROLL_SD, task_copy_func=deepcopy_basic_type)
         segments = rolling_task["dataset"]["kwargs"]["segments"]
         train_begin = segments["train"][0]
         train_end = gen.ta.get(gen.ta.align_idx(train_begin) + gen.step - 1)
         test_begin = gen.ta.get(gen.ta.align_idx(train_begin) + gen.step - 1 + trunc_days)
         test_end = rolling_task["dataset"]["kwargs"]["segments"]["valid"][1]
-        # extra_begin = gen.ta.get(gen.ta.align_idx(train_end) + 1)
-        # extra_end = gen.ta.get(gen.ta.align_idx(test_begin) - 1)
+        extra_begin = gen.ta.get(gen.ta.align_idx(train_end) + 1)
+        extra_end = gen.ta.get(gen.ta.align_idx(test_begin) - 1)
         test_end = gen.ta.get(gen.ta.align_idx(test_end) - gen.step)
         seperate_point = str(rolling_task["dataset"]["kwargs"]["segments"]["valid"][0])
         rolling_task["dataset"]["kwargs"]["segments"] = {
             "train": (train_begin, train_end),
-            # "extra": (extra_begin, extra_end),
             "test": (test_begin, test_end),
         }
+        if self.use_extra:
+            rolling_task["dataset"]["kwargs"]["segments"]["extra"] = (extra_begin, extra_end)
+
 
         kwargs = dict(
             task_tpl=rolling_task,
             step=self.step,
             segments=seperate_point,
-            # trunc_days=self.horizon+1,
             task_mode="train",
         )
         if self.forecast_model == "MLP" and self.alpha == 158:
@@ -213,24 +229,26 @@ class Incremental:
             step=self.step,
             H=self.horizon if self.data_dir == "us_data" else (1 + self.horizon),
             need_flatten=self.need_flatten,
+            to_tensor=self.preprocess_tensor
         )
 
         self.L = md_offline.meta_task_l[0].get_meta_input()["X_test"].shape[1]
         if self.need_flatten:
-            # self.L = self.L // self.d_feat
             self.d_feat = self.L
             self.L = 1
 
         train_begin = segments["valid"][0]
         train_end = gen.ta.get(gen.ta.align_idx(train_begin) + gen.step - 1)
         test_begin = gen.ta.get(gen.ta.align_idx(train_begin) + gen.step - 1 + trunc_days)
-        # extra_begin = gen.ta.get(gen.ta.align_idx(train_end) + 1)
-        # extra_end = gen.ta.get(gen.ta.align_idx(test_begin) - 1)
+        extra_begin = gen.ta.get(gen.ta.align_idx(train_end) + 1)
+        extra_end = gen.ta.get(gen.ta.align_idx(test_begin) - 1)
         rolling_task["dataset"]["kwargs"]["segments"] = {
             "train": (train_begin, train_end),
-            # "extra": (extra_begin, extra_end),
             "test": (test_begin, segments["test"][1]),
         }
+        if self.use_extra:
+            rolling_task["dataset"]["kwargs"]["segments"]["extra"] = (extra_begin, extra_end)
+
         kwargs.update(task_tpl=rolling_task, segments=0.0)
         if self.forecast_model == "MLP" and self.alpha == 158:
             kwargs.update(task_mode="test")
@@ -246,13 +264,11 @@ class Incremental:
             step=self.step,
             H=self.horizon if self.data_dir == "us_data" else (1 + self.horizon),
             need_flatten=self.need_flatten,
+            to_tensor=self.preprocess_tensor
         )
         return md_offline, md_online
 
     def offline_training(self, seed=43):
-        """
-        training a meta model based on a simplified linear proxy model;
-        """
         torch.manual_seed(seed)
         torch.cuda.manual_seed(seed)
 
@@ -288,6 +304,10 @@ class Incremental:
         )
         if not (self.naive and model is not None):
             mm.fit(self.meta_dataset_offline)
+            if self.save:
+                print(f'Save checkpoint in Exp: {self.meta_exp_name + "_checkpoint"}')
+                with R.start(experiment_name=self.meta_exp_name + "_checkpoint"):
+                    R.save_objects(**{"framework": mm})
         if self.naive and model is None:
             bm = Benchmark(
                 data_dir=self.data_dir,
@@ -299,10 +319,9 @@ class Incremental:
             R.set_uri("../baseline/mlruns/")
             with R.start(experiment_name=bm.exp_name + f"_{seed}"):
                 model = init_instance_by_config(bm.basic_task()["model"])
-                model.model = mm.tn.model
+                model.model = mm.framework.model
                 R.save_objects(**{"params.pkl": model})
             R.set_uri("./mlruns/")
-            # R.save_objects(model=mm)
         return mm
 
     def online_training(self, meta_tasks_test, meta_model=None, tag=""):
@@ -314,7 +333,7 @@ class Incremental:
             meta_model: MetaModelInc = meta_model
 
         step = self.step
-        gen = RollingGen(step=step, rtype=RollingGen.ROLL_SD)
+        gen = RollingGen(step=step, rtype=RollingGen.ROLL_SD, task_copy_func=deepcopy_basic_type)
         segments = self.task["dataset"]["kwargs"]["segments"]
         test_begin, test_end = segments["test"]
         test_begin = gen.ta.get(gen.ta.align_idx(test_begin))
@@ -329,7 +348,12 @@ class Incremental:
                 label_all = label_all.loc[test_begin:test_end]
             label_all = label_all.dropna(axis=0)
             mlp158 = self.forecast_model == "MLP" and self.alpha == 158
-            pred_y_all, ic = meta_model.inference(meta_tasks_test)
+            pred_y_all, losses = meta_model.inference(meta_tasks_test)
+            # tasks = []
+            # for loss, task in zip(losses, meta_tasks_test.meta_task_l):
+            #     segments = task.task["dataset"]["kwargs"]["segments"]
+            #     tasks.append({'loss': loss, 'train': segments['train'], 'test': segments['test']})
+            # R.save_objects(**{'task_list': tasks})
             if mlp158:
                 pred_y_all = pred_y_all.loc[test_begin:test_end]
                 label_all = label_all.loc[pred_y_all.index]
@@ -367,10 +391,10 @@ class Incremental:
             },
         }
         rec = R.get_exp(experiment_name=self.infer_exp_name).list_recorders(rtype=Experiment.RT_L)[0]
-        # rmse = np.sqrt(((pred_y_all['pred'].to_numpy() - pred_y_all['label'].to_numpy()) ** 2).mean())
-        # mae = np.abs(pred_y_all['pred'].to_numpy() - pred_y_all['label'].to_numpy()).mean()
-        # print('rmse:', rmse, 'mae', mae)
-        # rec.log_metrics(rmse=rmse, mae=mae)
+        mse = ((pred_y_all['pred'].to_numpy() - pred_y_all['label'].to_numpy()) ** 2).mean()
+        mae = np.abs(pred_y_all['pred'].to_numpy() - pred_y_all['label'].to_numpy()).mean()
+        print('mse:', mse, 'mae', mae)
+        rec.log_metrics(mse=mse, mae=mae)
         SigAnaRecord(recorder=rec, skip_existing=True).generate()
         PortAnaRecord(recorder=rec, config=backtest_config, skip_existing=True).generate()
         print(f"Your evaluation results can be found in the experiment named `{self.infer_exp_name}`.")
@@ -381,23 +405,34 @@ class Incremental:
         all_metrics = {
             k: []
             for k in [
-                # 'rmse', 'mae',
+                'mse', 'mae',
                 "IC",
                 "ICIR",
                 "Rank IC",
                 "Rank ICIR",
                 "1day.excess_return_with_cost.annualized_return",
                 "1day.excess_return_with_cost.information_ratio",
-                "1day.excess_return_with_cost.max_drawdown",
+                # "1day.excess_return_with_cost.max_drawdown",
             ]
         }
+        if self.rank_label:
+            all_metrics.pop('IC')
+            all_metrics.pop('ICIR')
         train_time = []
         test_time = []
-        self.tag = str(time.time())
+        if not self.tag:
+            self.tag = str(time.time())
         for i in range(0, 10):
             start_time = time.time()
             np.random.seed(i)
-            mm = self.offline_training(seed=43 + i)
+            if self.reload_exp is not None:
+                rec = R.get_exp(experiment_name=self.reload_exp + '_checkpoint').list_recorders(rtype=Experiment.RT_L)[i]
+                mm: MetaModelInc = rec.load_object("framework")
+                mm.framework.lr_model = 0.001
+                mm.framework.opt.param_groups[0]['lr'] = self.lr_model
+                mm.opt.param_groups[0]['lr'] = self.lr
+            else:
+                mm = self.offline_training(seed=43 + i)
             train_time.append(time.time() - start_time)
             start_time = time.time()
             rec = self.online_training(self.meta_dataset_online, mm)
