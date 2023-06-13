@@ -239,7 +239,7 @@ class Graphs(Model):
         return pd_prediction.corr(pd_label)
 
 
-    def get_daily_inter(self, df, shuffle=False):
+    def get_daily_inter(self, df, shuffle=False, step_size=1):
         # organize the train data into daily batches
         daily_count = df.groupby(level=0).size().values
         daily_index = np.roll(np.cumsum(daily_count), 1)
@@ -255,6 +255,11 @@ class Graphs(Model):
         daily_index = daily_index[indexes]
         daily_count = daily_count[indexes]
         stocks_daily = [stocks_daily_[i] for i in indexes]
+
+        # sample the dates by step_size
+        daily_index = daily_index[::step_size]
+        daily_count = daily_count[::step_size]
+        stocks_daily = stocks_daily[::step_size]
 
         return daily_index, daily_count, stocks_daily
 
@@ -331,7 +336,7 @@ class Graphs(Model):
         x_valid, y_valid = df_valid["feature"], df_valid["label"]
         x_test, y_test = df_test["feature"], df_test["label"]
 
-        save_path = get_or_create_path(save_path)
+        # save_path = get_or_create_path(save_path)
 
         stop_steps = 0
         train_loss = 0
@@ -410,16 +415,17 @@ class Graphs(Model):
         fidelity = abs(new_pred[newstkid]-pred)*10000
         return fidelity
 
-    def get_explanation(self, dataset, explainer, stocks = None):
+    def get_explanation(self, dataset, explainer, stocks=None, step_size=10):
         '''
         stocks is a list of stocks that need to be explained. If None, generate explanation for all batch stocks.
         '''
         x_test = dataset.prepare('explain', col_set="feature")
         self.model.eval()
         x_values = x_test.values
-        daily_index, daily_count, stocks_daily = self.get_daily_inter(x_test, shuffle=False)
+        daily_index, daily_count, stocks_daily = self.get_daily_inter(x_test, shuffle=False, step_size=step_size)
         explanations = []
-        scores = []
+        scores_mask = []
+        scores_maskout = []
         xsize = []
 
         for idx, count, stks in zip(daily_index, daily_count, stocks_daily):
@@ -428,7 +434,8 @@ class Graphs(Model):
             feature = torch.from_numpy(x_values[batch]).float().to(self.device)
 
             batch_explanations = {}
-            batch_fidelity = 0
+            batch_fidelity_mask = 0
+            batch_fidelity_maskout = 0
             index_to_explain = []
             batch_graph_size = 0
             with torch.no_grad():
@@ -454,12 +461,15 @@ class Graphs(Model):
                     id_sub = index.index(stkid)
                     #print(f'stock {stk} with stkid={stkid}. new id in subgraph is {id_sub}')
                     explanation = explainer.explain(self.model, subgraph, id_sub)
-                    explanation_graph, id_xgraph = explainer.explanation_to_graph(explanation, subgraph, id_sub)
-                    fidelity = self.get_fidelity(explanation_graph, id_xgraph, pred[id_sub])
+                    explanation_graph_mask, id_xgraph_mask = explainer.explanation_to_graph(explanation, subgraph, id_sub)
+                    explanation_graph_maskout, id_xgraph_maskout = explainer.explanation_to_graph(explanation, subgraph, id_sub, maskout=True)
+                    fidelity_mask = self.get_fidelity(explanation_graph_mask, id_xgraph_mask, pred[id_sub])
+                    fidelity_maskout = self.get_fidelity(explanation_graph_maskout, id_xgraph_maskout, pred[id_sub])
 
                     batch_explanations[stk] = explanation # note the node index in explanation is in subgraph!
-                    batch_fidelity += fidelity
-                    batch_graph_size += explanation_graph.num_nodes()
+                    batch_fidelity_mask += fidelity_mask
+                    batch_fidelity_maskout += fidelity_maskout
+                    batch_graph_size += explanation_graph_mask.num_nodes()
 
                     # Exemplary output
                     '''if i<5:
@@ -468,14 +478,18 @@ class Graphs(Model):
                 explanations.append(batch_explanations)
                 num_stock = len(batch_explanations.keys())
                 if num_stock>0:
-                    fidelity_score = batch_fidelity/num_stock
+                    fidelity_mask_score = batch_fidelity_mask/num_stock
+                    fidelity_maskout_score = batch_fidelity_maskout/num_stock
                     graph_size = batch_graph_size/num_stock
-                    scores.append(fidelity_score)
+                    scores_mask.append(fidelity_mask_score)
+                    scores_maskout.append(fidelity_maskout_score)
                     xsize.append(graph_size)
-                self.logger.info(f" Explain for {num_stock} stocks in batch, fidelity score {fidelity_score}*10^(-4), xgraph size {graph_size}.." )
-        self.logger.info(f" Overall fidelity score {sum(scores)/len(scores)}*10^(-4).")
+                self.logger.info(f" Explain for {num_stock} stocks in batch, fidelity mask score {fidelity_mask_score}*10^(-4), \
+                                 fidelity maskout score {fidelity_maskout_score}*10^(-4), xgraph size {graph_size}.." )
+        self.logger.info(f" Overall fidelity mask score {sum(scores_mask)/len(scores_mask)}*10^(-4).")
+        self.logger.info(f" Overall fidelity maskout score {sum(scores_maskout)/len(scores_maskout)}*10^(-4).")
         self.logger.info(f" Overall xgraph size {sum(xsize)/len(xsize)}.")
-        return explanations, scores
+        return explanations, [scores_mask, scores_maskout]
 
 
 

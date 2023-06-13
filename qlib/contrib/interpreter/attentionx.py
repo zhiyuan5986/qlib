@@ -17,7 +17,7 @@ class AttentionX(GraphExplainer):
     def explain(self, full_model, graph, stkid):
         #target_ntype = full_model.target_type
         #target_ntype = self.target_ntype
-        dataloader = dgl.dataloading.NodeDataLoader(graph,
+        dataloader = dgl.dataloading.DataLoader(graph,
                                                      torch.Tensor([stkid]).type(torch.int64).to(self.device),
                                                      self.sampler,
                                                     batch_size=1, shuffle=False, drop_last=False)
@@ -83,8 +83,12 @@ class AttentionX(GraphExplainer):
         return sorted_ne
 
 
-    def explanation_to_graph(self, explanation, subgraph, stkid, top_k=5):
-        g_m_nodes = [i[0] for i in explanation[:top_k]]
+    def explanation_to_graph(self, explanation, subgraph, stkid, top_k=5, maskout=False):
+        if not maskout:
+            g_m_nodes = [i[0] for i in explanation[:top_k]]
+        else:
+            g_m_nodes = [i[0] for i in explanation[top_k:]]
+            top_k = 4
         if not stkid in g_m_nodes:
             g_m_nodes.append(stkid)
         g_m = dgl.node_subgraph(subgraph, g_m_nodes)

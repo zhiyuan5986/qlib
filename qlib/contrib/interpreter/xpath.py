@@ -24,7 +24,7 @@ class xPath(GraphExplainer):
     def sample_step(self, g, ap, sample_n):
         apid = list(ap)
 
-        one_hop_loader = dgl.dataloading.NodeDataLoader(g, torch.tensor([apid[-1]], dtype=torch.int64, device=self.device),
+        one_hop_loader = dgl.dataloading.DataLoader(g, torch.tensor([apid[-1]], dtype=torch.int64, device=self.device),
                                                         self.one_hop_sampler, batch_size=1, shuffle=False,
                                                         drop_last=False)
         neighbors = None
@@ -105,7 +105,6 @@ class xPath(GraphExplainer):
         sg.ndata['nfeat'] = x
         return sg.to(self.device)
 
-
     def get_proxy_homograph(self, g, p):
         g = g.to('cpu')
 
@@ -167,9 +166,9 @@ class xPath(GraphExplainer):
         sg.ndata['nfeat'] = x
         return sg.to(self.device)
 
-    def explain(self, full_model, graph, stkid, beam=3, sample_n=10):
+    def explain(self, full_model, graph, stkid, beam=5, sample_n=10):
         target_ntype = self.target_ntype
-        dataloader = dgl.dataloading.NodeDataLoader(graph,
+        dataloader = dgl.dataloading.DataLoader(graph,
                                                         torch.Tensor([stkid]).type(torch.int64).to(self.device),
                                                         self.sampler,
                                                         batch_size=1, shuffle=False, drop_last=False)
@@ -223,10 +222,14 @@ class xPath(GraphExplainer):
             xpath2s[tuple(origin_path_key)] = path2s[path_key]
         return xpath2s
 
-    def explanation_to_graph(self, explanation, subgraph, stkid, top_k=4):
+    def explanation_to_graph(self, explanation, subgraph, stkid, top_k=5, maskout=False):
         keys = list(explanation.keys())
         values = list(explanation.values())
-        ind = np.argsort(values)[-top_k:]
+        if not maskout:
+            ind = np.argsort(values)[-top_k:]
+        else:
+            ind = np.argsort(values)[:-top_k]
+            top_k = 6
         paths = [keys[i] for i in ind]
         xnodes = {}
         nodepair = {}
