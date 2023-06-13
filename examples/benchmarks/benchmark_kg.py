@@ -9,14 +9,12 @@ import torch
 
 from pathlib import Path
 import sys
-
-from qlib.data.dataset import Dataset, DataHandlerLP, TSDataSampler
-from qlib.workflow.task.utils import TimeAdjuster
-
 DIRNAME = Path(__file__).absolute().resolve().parent
 sys.path.append(str(DIRNAME.parent))
 sys.path.append(str(DIRNAME.parent.parent))
 
+from qlib.data.dataset import Dataset, DataHandlerLP, TSDataSampler
+from qlib.workflow.task.utils import TimeAdjuster
 from qlib.model.ens.ensemble import RollingEnsemble
 from qlib.utils import init_instance_by_config
 import fire
