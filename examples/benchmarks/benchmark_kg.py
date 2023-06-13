@@ -40,8 +40,8 @@ class Benchmark:
         self.alpha = alpha
         self.exp_name = f"{model_type}_{self.data_dir}_{self.market}_latest_{self.alpha}_rank{rank_label}"
         self.rank_label = rank_label
-        self.lr = 0.001
-        self.early_stop = 8
+        self.lr = lr
+        self.early_stop = early_stop
 
     def basic_task(self):
         """For fast training rolling"""
