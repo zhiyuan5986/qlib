@@ -46,15 +46,15 @@ port_analysis_config: &port_analysis_config
             min_cost: 5
 task:
     model:
-        class: NRSR
-        module_path: qlib.contrib.model.pytorch_nrsr
+        class: RSR
+        module_path: qlib.contrib.model.pytorch_rsr
         kwargs:
             d_feat: 6
             hidden_size: 128
             num_layers: 2
             dropout: 0
             n_epochs: 200
-            lr: 2e-4
+            lr: 0.0002
             early_stop: 20
             metric: ic
             loss: mse

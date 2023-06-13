@@ -37,11 +37,10 @@ class Benchmark:
                  lr=0.001, early_stop=8) -> None:
         self.data_dir = data_dir
         self.market = market
-        self.step = 20
         self.horizon = 1
         self.model_type = model_type
         self.alpha = alpha
-        self.exp_name = f"{model_type}_{self.data_dir}_{self.market}_{self.alpha}_rank{rank_label}"
+        self.exp_name = f"{model_type}_{self.data_dir}_{self.market}_latest_{self.alpha}_rank{rank_label}"
         self.rank_label = rank_label
         self.lr = 0.001
         self.early_stop = 8
@@ -69,16 +68,6 @@ class Benchmark:
             filename = "linear_alpha{}_handler_horizon{}.pkl".format(
                 self.alpha, self.horizon
             )
-        elif self.model_type == "kmlp":
-            conf_path = (
-                DIRNAME.parent
-                / "benchmarks"
-                / "Linear"
-                / "workflow_config_linear_Alpha{}.yaml".format(self.alpha)
-            )
-            filename = "linear_alpha{}_handler_horizon{}.pkl".format(
-                self.alpha, self.horizon
-            )
         else:
             conf_path = (
                 DIRNAME.parent
@@ -89,7 +78,7 @@ class Benchmark:
                 )
             )
             filename = "alpha{}_handler_horizon{}.pkl".format(self.alpha, self.horizon)
-        filename = f"{self.data_dir}_{self.market}_rank{self.rank_label}_{filename}"
+        filename = f"{self.data_dir}_latest_{self.market}_rank{self.rank_label}_{filename}"
         h_path = DIRNAME.parent / "benchmarks_dynamic" / "baseline" / filename
         with conf_path.open("r") as f:
             conf = yaml.safe_load(f)
@@ -115,23 +104,32 @@ class Benchmark:
 
         task = conf["task"]
 
-        if not h_path.exists():
-            h_conf = task["dataset"]["kwargs"]["handler"]
-            if not self.rank_label and not (self.model_type == "gbdt" or self.alpha == 158):
-                proc = h_conf["kwargs"]["learn_processors"][-1]
-                if (
-                    isinstance(proc, str)
-                    and proc == "CSRankNorm"
-                    or isinstance(proc, dict)
-                    and proc["class"] == "CSRankNorm"
-                ):
-                    h_conf["kwargs"]["learn_processors"] = h_conf["kwargs"]["learn_processors"][:-1]
-                    print("Remove CSRankNorm")
-                    h_conf["kwargs"]["learn_processors"].append(
-                        {"class": "CSZScoreNorm", "kwargs": {"fields_group": "label"}}
-                    )
+        task['dataset']['kwargs']['segments']['train'] = ['2018-01-01', '2019-12-31']
+        task['dataset']['kwargs']['segments']['valid'] = ['2020-01-01', '2020-12-31']
+        task['dataset']['kwargs']['segments']['test'] = ['2021-01-01', '2022-12-31']
 
-            print(h_conf)
+        h_conf = task["dataset"]["kwargs"]["handler"]
+        h_conf["kwargs"]['start_time'] = task['dataset']['kwargs']['segments']['train'][0]
+        h_conf["kwargs"]['end_time'] = task['dataset']['kwargs']['segments']['test'][1]
+        h_conf["kwargs"]['fit_start_time'] = h_conf["kwargs"]['start_time']
+        h_conf["kwargs"]['fit_end_time'] = task['dataset']['kwargs']['segments']['train'][1]
+        if not self.rank_label and not (self.model_type == "gbdt" or self.alpha == 158):
+            proc = h_conf["kwargs"]["learn_processors"][-1]
+            if (
+                isinstance(proc, str)
+                and proc == "CSRankNorm"
+                or isinstance(proc, dict)
+                and proc["class"] == "CSRankNorm"
+            ):
+                h_conf["kwargs"]["learn_processors"] = h_conf["kwargs"]["learn_processors"][:-1]
+                print("Remove CSRankNorm")
+                h_conf["kwargs"]["learn_processors"].append(
+                    {"class": "CSZScoreNorm", "kwargs": {"fields_group": "label"}}
+                )
+        task["dataset"]["kwargs"]["handler"] = h_conf
+        print(h_conf)
+
+        if not h_path.exists():
             h = init_instance_by_config(h_conf)
             h.to_pickle(h_path, dump_all=True)
             print('Save handler file to', h_path)
