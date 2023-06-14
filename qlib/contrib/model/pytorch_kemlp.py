@@ -95,10 +95,10 @@ class KEMLPPytorch(DNNModelPytorch):
                 for v in vars:
                     all_t[v][seg] = torch.from_numpy(all_df[v][seg].values).float()
                     # if seg == "valid": # accelerate the eval of validation
-                    # all_t[v][seg] = all_t[v][seg].to(self.device)  # This will consume a lot of memory !!!!
+                    all_t[v][seg] = all_t[v][seg].to(self.device)  # This will consume a lot of memory !!!!
 
                 kg_emb = torch.from_numpy(self.kg_embedding).float()
-                # kg_emb = kg_emb.to(self.device)
+                kg_emb = kg_emb.to(self.device)
                 idx = torch.tensor([self.stock_id_table[_id] for _id in df.index.get_level_values(1)])
                 if self.static:
                     kg_emb = kg_emb[idx]
