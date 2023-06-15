@@ -47,6 +47,7 @@ class RollingBenchmark:
         rank_label=True,
         h_path: Optional[str] = None,
         train_start: Optional[str] = None,
+        test_start: Optional[str] = None,
         test_end: Optional[str] = None,
         task_ext_conf: Optional[dict] = None,
     ) -> None:
@@ -66,6 +67,7 @@ class RollingBenchmark:
         self.model_type = model_type
         self.h_path = h_path
         self.train_start = train_start
+        self.test_start = test_start
         self.test_end = test_end
         self.logger = get_module_logger("RollingBenchmark")
         self.task_ext_conf = task_ext_conf
@@ -109,7 +111,7 @@ class RollingBenchmark:
             )
             # dump the processed data on to disk for later loading to speed up the processing
             filename = "linear_alpha{}_handler_horizon{}.pkl".format(self.alpha, self.horizon)
-        elif self.model_type == "mlp":
+        elif self.model_type == "MLP":
             conf_path = (
                 DIRNAME.parent.parent / "benchmarks" / "MLP" / "workflow_config_mlp_Alpha{}.yaml".format(self.alpha)
             )
@@ -164,25 +166,27 @@ class RollingBenchmark:
         if self.task_ext_conf is not None:
             task = update_config(task, self.task_ext_conf)
 
-        if not h_path.exists():
-            h_conf = task["dataset"]["kwargs"]["handler"]
-            if not self.rank_label and not (self.model_type == "gbdt" or self.alpha == 158):
-                proc = h_conf["kwargs"]["learn_processors"][-1]
-                if (
-                    isinstance(proc, str)
-                    and proc == "CSRankNorm"
-                    or isinstance(proc, dict)
-                    and proc["class"] == "CSRankNorm"
-                ):
-                    h_conf["kwargs"]["learn_processors"] = h_conf["kwargs"]["learn_processors"][:-1]
-                    print("Remove CSRankNorm")
-                    h_conf["kwargs"]["learn_processors"].append(
-                        {"class": "CSZScoreNorm", "kwargs": {"fields_group": "label"}}
-                    )
+        h_conf = task["dataset"]["kwargs"]["handler"]
+        if not (self.model_type == "gbdt" and self.alpha == 158):
+            expect_label_processor = "CSRankNorm" if self.rank_label else "CSZScoreNorm"
+            delete_label_processor = "CSZScoreNorm" if self.rank_label else "CSRankNorm"
+            proc = h_conf["kwargs"]["learn_processors"][-1]
+            if (
+                isinstance(proc, str) and self.rank_label and proc == delete_label_processor
+                or
+                isinstance(proc, dict) and proc["class"] == delete_label_processor
+            ):
+                h_conf["kwargs"]["learn_processors"] = h_conf["kwargs"]["learn_processors"][:-1]
+                print("Remove", delete_label_processor)
+                h_conf["kwargs"]["learn_processors"].append(
+                    {"class": expect_label_processor, "kwargs": {"fields_group": "label"}}
+                )
+        print(h_conf)
 
-            print(h_conf)
+        if not h_path.exists():
             h = init_instance_by_config(h_conf)
             h.to_pickle(h_path, dump_all=True)
+            print('Save handler file to', h_path)
 
         task["dataset"]["kwargs"]["handler"] = f"file://{h_path}"
         task["record"] = ["qlib.workflow.record_temp.SignalRecord"]
@@ -190,6 +194,10 @@ class RollingBenchmark:
         if self.train_start is not None:
             seg = task["dataset"]["kwargs"]["segments"]["train"]
             task["dataset"]["kwargs"]["segments"]["train"] = pd.Timestamp(self.train_start), seg[1]
+
+        if self.test_start is not None:
+            seg = task["dataset"]["kwargs"]["segments"]["train"]
+            task["dataset"]["kwargs"]["segments"]["test"] = pd.Timestamp(self.test_start), seg[1]
 
         if self.test_end is not None:
             seg = task["dataset"]["kwargs"]["segments"]["test"]
@@ -279,18 +287,18 @@ class RollingBenchmark:
         all_metrics = {
             k: []
             for k in [
-                'mse', 'mae',
+                # 'mse', 'mae',
                 "IC",
                 "ICIR",
-                "Rank IC",
-                "Rank ICIR",
-                "1day.excess_return_with_cost.annualized_return",
-                "1day.excess_return_with_cost.information_ratio",
-                "1day.excess_return_with_cost.max_drawdown",
+                # "Rank IC",
+                # "Rank ICIR",
+                # "1day.excess_return_with_cost.annualized_return",
+                # "1day.excess_return_with_cost.information_ratio",
+                # "1day.excess_return_with_cost.max_drawdown",
             ]
         }
         test_time = []
-        for i in range(10):
+        for i in range(5):
             np.random.seed(i + 43)
             torch.manual_seed(i + 43)
             torch.cuda.manual_seed(i + 43)

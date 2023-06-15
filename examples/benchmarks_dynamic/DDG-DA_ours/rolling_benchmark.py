@@ -1,5 +1,6 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
+from typing import Optional
 import time
 from pprint import pprint
 from typing import Callable, List
@@ -30,8 +31,10 @@ import yaml
 from qlib import auto_init, get_module_logger
 from pathlib import Path
 from tqdm.auto import tqdm
-from qlib.model.trainer import TrainerR, _log_task_info
-from qlib.workflow import R, Recorder, Experiment
+from qlib.model.trainer import TrainerR
+from qlib.log import get_module_logger
+from qlib.utils.data import update_config
+from qlib.workflow import R, Experiment
 from qlib.tests.data import GetData
 
 DIRNAME = Path(__file__).absolute().resolve().parent
@@ -58,6 +61,11 @@ class RollingBenchmark:
         alpha="158",
         horizon=1,
         rank_label=True,
+        h_path: Optional[str] = None,
+        train_start: Optional[str] = None,
+        test_start: Optional[str] = None,
+        test_end: Optional[str] = None,
+        task_ext_conf: Optional[dict] = None,
     ) -> None:
         self.data_dir = data_dir
         self.market = market
@@ -73,6 +81,12 @@ class RollingBenchmark:
         self.horizon = horizon
         # self.rolling_exp = rolling_exp
         self.model_type = model_type
+        self.h_path = h_path
+        self.train_start = train_start
+        self.test_start = test_start
+        self.test_end = test_end
+        self.logger = get_module_logger("RollingBenchmark")
+        self.task_ext_conf = task_ext_conf
         self.rank_label = rank_label
         self.alpha = alpha
         self.tag = ""
@@ -113,7 +127,7 @@ class RollingBenchmark:
             )
             # dump the processed data on to disk for later loading to speed up the processing
             filename = "linear_alpha{}_handler_horizon{}.pkl".format(self.alpha, self.horizon)
-        elif self.model_type == "mlp":
+        elif self.model_type == "MLP":
             conf_path = (
                 DIRNAME.parent.parent / "benchmarks" / "MLP" / "workflow_config_mlp_Alpha{}.yaml".format(self.alpha)
             )
@@ -131,6 +145,9 @@ class RollingBenchmark:
 
         filename = f"{self.data_dir}_{self.market}_rank{self.rank_label}_{filename}"
         h_path = DIRNAME.parent / "baseline" / filename
+
+        if self.h_path is not None:
+            h_path = Path(self.h_path)
 
         with conf_path.open("r") as f:
             conf = yaml.safe_load(f)
@@ -162,28 +179,46 @@ class RollingBenchmark:
 
         task = conf["task"]
 
-        if not h_path.exists():
-            h_conf = task["dataset"]["kwargs"]["handler"]
-            if not self.rank_label and not (self.model_type == "gbdt" or self.alpha == 158):
-                proc = h_conf["kwargs"]["learn_processors"][-1]
-                if (
-                    isinstance(proc, str)
-                    and proc == "CSRankNorm"
-                    or isinstance(proc, dict)
-                    and proc["class"] == "CSRankNorm"
-                ):
-                    h_conf["kwargs"]["learn_processors"] = h_conf["kwargs"]["learn_processors"][:-1]
-                    print("Remove CSRankNorm")
-                    h_conf["kwargs"]["learn_processors"].append(
-                        {"class": "CSZScoreNorm", "kwargs": {"fields_group": "label"}}
-                    )
+        if self.task_ext_conf is not None:
+            task = update_config(task, self.task_ext_conf)
 
-            print(h_conf)
+        h_conf = task["dataset"]["kwargs"]["handler"]
+        if not (self.model_type == "gbdt" and self.alpha == 158):
+            expect_label_processor = "CSRankNorm" if self.rank_label else "CSZScoreNorm"
+            delete_label_processor = "CSZScoreNorm" if self.rank_label else "CSRankNorm"
+            proc = h_conf["kwargs"]["learn_processors"][-1]
+            if (
+                isinstance(proc, str) and self.rank_label and proc == delete_label_processor
+                or
+                isinstance(proc, dict) and proc["class"] == delete_label_processor
+            ):
+                h_conf["kwargs"]["learn_processors"] = h_conf["kwargs"]["learn_processors"][:-1]
+                print("Remove", delete_label_processor)
+                h_conf["kwargs"]["learn_processors"].append(
+                    {"class": expect_label_processor, "kwargs": {"fields_group": "label"}}
+                )
+        print(h_conf)
+
+        if not h_path.exists():
             h = init_instance_by_config(h_conf)
             h.to_pickle(h_path, dump_all=True)
+            print('Save handler file to', h_path)
 
         task["dataset"]["kwargs"]["handler"] = f"file://{h_path}"
         task["record"] = ["qlib.workflow.record_temp.SignalRecord"]
+
+        if self.train_start is not None:
+            seg = task["dataset"]["kwargs"]["segments"]["train"]
+            task["dataset"]["kwargs"]["segments"]["train"] = pd.Timestamp(self.train_start), seg[1]
+
+        if self.test_start is not None:
+            seg = task["dataset"]["kwargs"]["segments"]["train"]
+            task["dataset"]["kwargs"]["segments"]["test"] = pd.Timestamp(self.test_start), seg[1]
+
+        if self.test_end is not None:
+            seg = task["dataset"]["kwargs"]["segments"]["test"]
+            task["dataset"]["kwargs"]["segments"]["test"] = seg[0], pd.Timestamp(self.test_end)
+        self.logger.info(task)
         return task
 
     def create_rolling_tasks(self):

@@ -1,18 +1,22 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
+from pathlib import Path
+import sys
+
+DIRNAME = Path(__file__).absolute().resolve().parent
+sys.path.append(str(DIRNAME.parent))
+sys.path.append(str(DIRNAME.parent.parent))
+
 import time
 from pprint import pprint
+from typing import Optional
 
 import numpy as np
 import pandas as pd
 import torch
 
-from pathlib import Path
-import sys
-DIRNAME = Path(__file__).absolute().resolve().parent
-sys.path.append(str(DIRNAME.parent))
-sys.path.append(str(DIRNAME.parent.parent))
-
+import qlib
+from qlib.utils.data import update_config
 from qlib.data.dataset import Dataset, DataHandlerLP, TSDataSampler
 from qlib.workflow.task.utils import TimeAdjuster
 from qlib.model.ens.ensemble import RollingEnsemble
@@ -32,16 +36,43 @@ from qlib.workflow.record_temp import PortAnaRecord, SigAnaRecord, SignalRecord
 
 class Benchmark:
     def __init__(self, data_dir="cn_data", market="csi300", model_type="linear", alpha="360", rank_label=True,
-                 lr=0.001, early_stop=8) -> None:
+                 lr=0.001, early_stop=8, reload=False,
+                 init_data=True,
+                 h_path: Optional[str] = None,
+                 train_start: Optional[str] = None,
+                 test_end: Optional[str] = None,
+                 task_ext_conf: Optional[dict] = None,) -> None:
         self.data_dir = data_dir
         self.market = market
+        if init_data:
+            if data_dir == "cn_data":
+                GetData().qlib_data(target_dir="~/.qlib/qlib_data/cn_data", exists_skip=True)
+                auto_init()
+            else:
+                qlib.init(
+                    provider_uri="~/.qlib/qlib_data/" + data_dir, region="us" if self.data_dir == "us_data" else "cn",
+                )
         self.horizon = 1
         self.model_type = model_type
+        self.h_path = h_path
+        self.train_start = train_start
+        self.test_end = test_end
+        self.task_ext_conf = task_ext_conf
         self.alpha = alpha
         self.exp_name = f"{model_type}_{self.data_dir}_{self.market}_latest_{self.alpha}_rank{rank_label}"
         self.rank_label = rank_label
         self.lr = lr
         self.early_stop = early_stop
+        self.reload = reload
+        self.tag = ""
+        if self.data_dir == "us_data":
+            self.benchmark = "^gspc"
+        elif self.market == "csi500":
+            self.benchmark = "SH000905"
+        elif self.market == "csi100":
+            self.benchmark = "SH000903"
+        else:
+            self.benchmark = "SH000300"
 
     def basic_task(self):
         """For fast training rolling"""
@@ -66,6 +97,16 @@ class Benchmark:
             filename = "linear_alpha{}_handler_horizon{}.pkl".format(
                 self.alpha, self.horizon
             )
+        elif "MLP" in self.model_type:
+            conf_path = (
+                DIRNAME.parent
+                / "benchmarks"
+                / self.model_type
+                / "workflow_config_{}_Alpha{}.yaml".format(self.model_type.lower(), self.alpha)
+            )
+            filename = "MLP_alpha{}_handler_horizon{}.pkl".format(
+                self.alpha, self.horizon
+            )
         else:
             conf_path = (
                 DIRNAME.parent
@@ -78,6 +119,10 @@ class Benchmark:
             filename = "alpha{}_handler_horizon{}.pkl".format(self.alpha, self.horizon)
         filename = f"{self.data_dir}_latest_{self.market}_rank{self.rank_label}_{filename}"
         h_path = DIRNAME.parent / "benchmarks_dynamic" / "baseline" / filename
+
+        if self.h_path is not None:
+            h_path = Path(self.h_path)
+
         with conf_path.open("r") as f:
             conf = yaml.safe_load(f)
 
@@ -102,6 +147,9 @@ class Benchmark:
 
         task = conf["task"]
 
+        if self.task_ext_conf is not None:
+            task = update_config(task, self.task_ext_conf)
+
         task['dataset']['kwargs']['segments']['train'] = ['2018-01-01', '2019-12-31']
         task['dataset']['kwargs']['segments']['valid'] = ['2020-01-01', '2020-12-31']
         task['dataset']['kwargs']['segments']['test'] = ['2021-01-01', '2022-12-31']
@@ -111,20 +159,20 @@ class Benchmark:
         h_conf["kwargs"]['end_time'] = task['dataset']['kwargs']['segments']['test'][1]
         h_conf["kwargs"]['fit_start_time'] = h_conf["kwargs"]['start_time']
         h_conf["kwargs"]['fit_end_time'] = task['dataset']['kwargs']['segments']['train'][1]
-        if not self.rank_label and not (self.model_type == "gbdt" or self.alpha == 158):
+        if not (self.model_type == "gbdt" and self.alpha == 158):
+            expect_label_processor = "CSRankNorm" if self.rank_label else "CSZScoreNorm"
+            delete_label_processor = "CSZScoreNorm" if self.rank_label else "CSRankNorm"
             proc = h_conf["kwargs"]["learn_processors"][-1]
             if (
-                isinstance(proc, str)
-                and proc == "CSRankNorm"
-                or isinstance(proc, dict)
-                and proc["class"] == "CSRankNorm"
+                isinstance(proc, str) and self.rank_label and proc == delete_label_processor
+                or
+                isinstance(proc, dict) and proc["class"] == delete_label_processor
             ):
                 h_conf["kwargs"]["learn_processors"] = h_conf["kwargs"]["learn_processors"][:-1]
-                print("Remove CSRankNorm")
+                print("Remove", delete_label_processor)
                 h_conf["kwargs"]["learn_processors"].append(
-                    {"class": "CSZScoreNorm", "kwargs": {"fields_group": "label"}}
+                    {"class": expect_label_processor, "kwargs": {"fields_group": "label"}}
                 )
-        task["dataset"]["kwargs"]["handler"] = h_conf
         print(h_conf)
 
         if not h_path.exists():
@@ -135,14 +183,25 @@ class Benchmark:
         # if not self.rank_label:
         #     task['model']['kwargs']['loss'] = 'ic'
         task["dataset"]["kwargs"]["handler"] = f"file://{h_path}"
+        task["record"] = ["qlib.workflow.record_temp.SignalRecord"]
+
+        if self.train_start is not None:
+            seg = task["dataset"]["kwargs"]["segments"]["train"]
+            task["dataset"]["kwargs"]["segments"]["train"] = pd.Timestamp(self.train_start), seg[1]
+
+        if self.test_end is not None:
+            seg = task["dataset"]["kwargs"]["segments"]["test"]
+            task["dataset"]["kwargs"]["segments"]["test"] = seg[0], pd.Timestamp(self.test_end)
         return task
 
     def get_fitted_model(self, suffix=""):
         task = self.basic_task()
         try:
+            if not self.reload:
+                raise Exception
             rec = list(R.list_recorders(experiment_name=self.exp_name + suffix).values())[0]
             model = rec.load_object("params.pkl")
-            print("Load pretrained model.")
+            print(f"Load pretrained model from {self.exp_name + suffix}.")
         except:
             model = init_instance_by_config(task["model"])
             dataset = init_instance_by_config(task["dataset"])
@@ -153,11 +212,6 @@ class Benchmark:
         return model
 
     def run_all(self):
-        if self.data_dir == "cn_data":
-            GetData().qlib_data(target_dir="~/.qlib/qlib_data/cn_data", exists_skip=True)
-            auto_init()
-        else:
-            init(provider_uri="~/.qlib/qlib_data/" + self.data_dir)
         task = self.basic_task()
         test_begin, test_end = task["dataset"]["kwargs"]["segments"]["test"]
         ta = TimeAdjuster(future=True)
@@ -185,13 +239,31 @@ class Benchmark:
             recorder.save_objects(**{"pred.pkl": pred, "label.pkl": raw_label})
 
             # Signal Analysis
-            sar = SigAnaRecord(recorder)
-            sar.generate()
+            SigAnaRecord(recorder).generate()
 
             # backtest. If users want to use backtest based on their own prediction,
             # please refer to https://qlib.readthedocs.io/en/latest/component/recorder.html#record-template.
-            par = PortAnaRecord(recorder)
-            par.generate()
+            backtest_config = {
+                "strategy": {
+                    "class": "TopkDropoutStrategy",
+                    "module_path": "qlib.contrib.strategy",
+                    "kwargs": {"signal": "<PRED>", "topk": 50, "n_drop": 5},
+                },
+                "backtest": {
+                    "start_time": None,
+                    "end_time": None,
+                    "account": 100000000,
+                    "benchmark": self.benchmark,
+                    "exchange_kwargs": {
+                        "limit_threshold": None if self.data_dir == "us_data" else 0.095,
+                        "deal_price": "close",
+                        "open_cost": 0.0005,
+                        "close_cost": 0.0015,
+                        "min_cost": 5,
+                    },
+                },
+            }
+            PortAnaRecord(recorder=recorder, config=backtest_config).generate()
 
             label = init_instance_by_config(self.basic_task()["dataset"], accept_types=Dataset).\
                 prepare(segments="test", col_set="label", data_key=DataHandlerLP.DK_L)
@@ -219,12 +291,12 @@ class Benchmark:
                 "Rank IC",
                 "Rank ICIR",
                 "1day.excess_return_with_cost.annualized_return",
-                "1day.excess_return_with_cost.information_ratio",
+                # "1day.excess_return_with_cost.information_ratio",
                 # "1day.excess_return_with_cost.max_drawdown",
             ]
         }
         test_time = []
-        for i in range(0, 10):
+        for i in range(0, 5):
             np.random.seed(43 + i)
             torch.manual_seed(43 + i)
             torch.cuda.manual_seed(43 + i)
