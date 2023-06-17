@@ -69,8 +69,9 @@ task:
             batch_size: 8192
             GPU: 0
             weight_decay: 0.0002
-            kg_embedding_path: "/data/zhaolifan/project/qlib/examples/benchmarks/KMLP/kgeef_alltime_dim8.npz"
-            stock_id_table_path: "/data/zhaolifan/project/qlib/examples/benchmarks/KMLP/kgeef_alltime_stock2id.json"
+            kg_embedding_path: "/data/zhaolifan/project/qlib/examples/benchmarks/KEMLP/kgeef_csi300_dim8_all.npy"
+            stock_id_table_path: "/data/zhaolifan/project/qlib/examples/benchmarks/KEMLP/stock_id_table.json"
+            date_table_path: "/data/zhaolifan/project/qlib/examples/benchmarks/KEMLP/date_table.csv"
             pt_model_kwargs:
               input_dim: 165
     dataset:
