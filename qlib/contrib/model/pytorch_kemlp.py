@@ -52,6 +52,8 @@ class KEMLPPytorch(DNNModelPytorch):
             self.kg_embedding = pd.read_csv(kg_embedding_path, header=None).values
         elif kg_embedding_path.endswith('npz'):
             self.kg_embedding = np.load(kg_embedding_path)['embeddings']
+        elif kg_embedding_path.endswith('npy'):
+            self.kg_embedding = np.load(kg_embedding_path)
         elif kg_embedding_path.endswith('pkl'):
             self.kg_embedding = pd.read_pickle(kg_embedding_path).values
         else:
@@ -103,8 +105,10 @@ class KEMLPPytorch(DNNModelPytorch):
                 if self.static:
                     kg_emb = kg_emb[idx]
                 else:
-                    date_idx = df.index.get_level_values(0).map(lambda date: self.date_table[(self.date_table >= date) & self.date_table <= date].index[0])
-                    date_idx = torch.LongTensor(date_idx, device=self.device)
+                    date_idx = df.index.get_level_values(0).map(
+                        lambda date: self.date_table[(self.date_table.iloc[:, 0] <= str(date)) &
+                                                     (self.date_table.iloc[:, 1] >= str(date))].index[0])
+                    date_idx = torch.LongTensor(date_idx.to_numpy()).to(self.device)
                     kg_emb = kg_emb[date_idx, idx]
                 all_t['x'][seg] = torch.cat([all_t['x'][seg], kg_emb], -1)
 
@@ -226,10 +230,20 @@ class KEMLPPytorch(DNNModelPytorch):
         if not self.fitted:
             raise ValueError("model is not fitted yet!")
         x_test_pd = dataset.prepare(segment, col_set="feature", data_key=DataHandlerLP.DK_I)
-        x_test_pd = x_test_pd[x_test_pd.index.get_level_values(1).isin(self.stock_id_table.keys())]
-        idx = np.array([self.stock_id_table[_id] for _id in x_test_pd.index.get_level_values(1)])
-        kg_emb = self.kg_embedding[idx]
-        kg_emb = torch.from_numpy(kg_emb).float()
+        # x_test_pd = x_test_pd[x_test_pd.index.get_level_values(1).isin(self.stock_id_table.keys())]
+
+        kg_emb = torch.from_numpy(self.kg_embedding).float()
+        # kg_emb = kg_emb.to(self.device)
+        idx = torch.tensor([self.stock_id_table[_id] for _id in x_test_pd.index.get_level_values(1)])
+        if self.static:
+            kg_emb = kg_emb[idx]
+        else:
+            date_idx = x_test_pd.index.get_level_values(0).map(
+                lambda date: self.date_table[(self.date_table.iloc[:, 0] <= str(date)) &
+                                             (self.date_table.iloc[:, 1] >= str(date))].index[0])
+            date_idx = torch.LongTensor(date_idx.to_numpy())
+            kg_emb = kg_emb[date_idx, idx]
+
         x_test = torch.Tensor(x_test_pd.values)
         x_test = torch.cat([x_test, kg_emb], -1)
         preds = self._nn_predict(x_test)
