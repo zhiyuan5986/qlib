@@ -1,16 +1,8 @@
-from pathlib import Path
-import sys
 import pickle
 import argparse
 import numpy as np
 import os
 import torch
-
-# DIRNAME = Path(__file__).absolute().resolve().parent
-# sys.path.append(str(DIRNAME))
-# sys.path.append(str(DIRNAME.parent.parent.parent))
-
-
 import qlib
 from qlib.constant import REG_CN, REG_US
 from qlib.utils import init_instance_by_config, flatten_dict
@@ -25,11 +17,17 @@ from qlib.contrib.interpreter.xpath import xPath
 from qlib.contrib.interpreter.subgraphx import SubgraphXExplainer
 
 
-def load_graph(market, instrument, start_date, end_date, relation_source='industry'):
-    universe = D.list_instruments(
-        D.instruments(instrument), start_time=start_date, end_time=end_date
-    )
-    stocks_sorted_list = sorted(list(universe.keys()))
+def load_graph(market, instrument, start_date, end_date, relation_source='industry', handler_data=None):
+    if handler_data is None:
+        universe = D.list_instruments(
+            D.instruments(instrument), start_time=start_date, end_time=end_date
+        )
+        stocks_sorted_list = sorted(list(universe.keys()))
+    else:
+        indexs = handler_data.index.levels[1].tolist()
+        indexs = list(set(indexs))
+        stocks_sorted_list = sorted(indexs)
+    print("number of stocks: ", len(stocks_sorted_list))
     stocks_index_dict = {}
     for i, stock in enumerate(stocks_sorted_list):
         stocks_index_dict[stock] = i
@@ -62,11 +60,11 @@ def make_config(args):
         train_end_date = '2014-12-31'
         valid_start_date = '2015-01-01'
         valid_end_date = '2016-12-31'
-        test_start_date = '2019-04-01'
+        test_start_date = '2017-01-01'
         # explain_end_date = '2017-01-03'
-        test_end_date = '2022-06-10'
+        test_end_date = '2022-12-31'
         # test_end_date = explain_end_date
-        explain_end_date = '2022-06-10'  # for each timestamp, attentionx requires about 3 sec to generate explanation.
+        explain_end_date = '2022-12-31'  # for each timestamp, attentionx requires about 3 sec to generate explanation.
     else:
         train_start_date = '2012-11-19'
         train_end_date = '2015-11-18'
@@ -84,8 +82,13 @@ def make_config(args):
     elif market == "NASDAQ":
         instrument = "nasdaq100"
 
+    with open(
+            '/home/jiale/.qlib/qlib_data/handler_mix_csi300_rankTrue_alpha360_horizon1.pkl',
+            'rb') as f:
+        handler = pickle.load(f)
+
     rel_encoding, stock_name_list = load_graph(
-        market, instrument, train_start_date, test_end_date, args.relation_type)
+        market, instrument, train_start_date, test_end_date, args.relation_type, handler._data)
 
     config = {}
     config['model'] = {
@@ -144,11 +147,11 @@ def make_config(args):
                               'kwargs': {'fields_group': 'label'}}],
     }
 
-    handler = {
-        "class": "Alpha360",
-        'module_path': 'qlib.contrib.data.handler',
-        'kwargs': dh_config
-    }
+    # handler = {
+    #     "class": "Alpha360",
+    #     'module_path': 'qlib.contrib.data.handler',
+    #     'kwargs': dh_config
+    # }
 
     dataset_config = {
         'class': 'DatasetH',
@@ -204,9 +207,10 @@ def make_port_config(model, dataset, benchmark):
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Explanation evalaation.")
-    parser.add_argument("--data_root", type=str, default="/home/zhangzexi/.qlib/qlib_data/", help="data root path")
-    parser.add_argument("--ckpt_root", type=str, default="/data/dengjiale/qlib_exp/tmp_ckpt/", help="ckpt root path")
-    parser.add_argument("--result_root", type=str, default="/data/dengjiale/qlib_exp/results/", help="explanation resluts root path")
+    parser.add_argument("--data_root", type=str, default="/home/jiale/.qlib/qlib_data/", help="data root path")
+    parser.add_argument("--ckpt_root", type=str, default="/home/jiale/qlib_exp/tmp_ckpt/", help="ckpt root path")
+    parser.add_argument("--result_root", type=str, default="/home/jiale/qlib_exp/results/",
+                        help="explanation resluts root path")
     parser.add_argument("--market", type=str, default="A_share",
                         choices=["A_share", "NASDAQ", "NYSE"], help="market name")
     parser.add_argument("--relation_type", type=str, default="stock-stock",
@@ -215,7 +219,7 @@ def parse_args():
                         choices=["RSR", "GAT", "simpleHGN"], help="graph moddel name")
     parser.add_argument("--graph_type", type=str, default="heterograph",
                         choices=["heterograph", "homograph"], help="graph type")
-    parser.add_argument("--gpu", type=int, default=1, help="gpu number")
+    parser.add_argument("--gpu", type=int, default=0, help="gpu number")
     args = parser.parse_args()
     return args
 
@@ -236,6 +240,7 @@ if __name__ == "__main__":
     dataset = init_instance_by_config(config['dataset'])
 
     if args.market == "A_share":
+        # instrument = "csi300"
         benchmark = "SH000300"
     elif args.market == "NASDAQ":
         benchmark = "^ndx"
@@ -246,6 +251,12 @@ if __name__ == "__main__":
     # It demonstrates that the dataset can be used standalone.
     # example_df = dataset.prepare("train")
     # print(example_df.head())
+
+    sparsity = {
+        'RSR': {'effect': [3, 5, 9], 'xpath': [2, 3, 5], 'subgraphx': [1, 4, 8]},
+        'simpleHGN': {'effect': [1, 3, 5], 'xpath': [2, 3, 5], 'subgraphx': [1, 4, 8]},
+        'GAT': {'effect': [2, 3, 5], 'xpath': [2, 3, 5], 'subgraphx': [1, 3, 6]},
+    }
 
     # start exp
     with R.start(experiment_name="graph_model_dgl"):
@@ -276,48 +287,44 @@ if __name__ == "__main__":
         par = PortAnaRecord(recorder, port_analysis_config, "day")
         par.generate()
 
+
+        def eval_explanation(explainer, explainer_name, step_size):
+            print(f'=========={explainer_name}==========')
+            subgraphx_path = os.path.join(args.result_root,
+                                          f"{args.market}-{args.graph_model}-{args.graph_type}-{explainer_name}-explanation")
+            if os.path.exists(subgraphx_path):
+                with open(subgraphx_path, 'rb') as f:
+                    attn_exp = pickle.load(f)
+                for i, k in enumerate(sparsity[args.graph_model][explainer_name]):
+                    print(f'==================sparsity: {i + 2}====================')
+                    explanation, scores = model.get_explanation(dataset, explainer,
+                                                                cached_explanations=attn_exp['explanation'],
+                                                                step_size=step_size,
+                                                                top_k=k)
+            else:
+                explanation, scores = model.get_explanation(dataset, explainer)
+                config['log']['explainer'] = explainer_name
+                config['log']['explanation'] = explanation
+                config['log']['scores'] = scores
+                print('Saving explanations...')
+                with open(subgraphx_path, 'wb') as f:
+                    pickle.dump(config['log'], f)
+
         # get attention explanation
         graph_type = args.graph_type  # for GAT, use 'homograph'
-        attn_explainer = AttentionX(graph_model=graph_type, num_layers=config['model']["kwargs"]['num_graph_layer'],
+        attn_explainer = AttentionX(graph_model=graph_type,
+                                    num_layers=config['model']["kwargs"]['num_graph_layer'],
                                     device=device)
         # the num_layers of explainers decide the neighborhood in which to find the explanations,
         # usually its the same as
         xpath_explainer = xPath(graph_model=graph_type, num_layers=config['model']["kwargs"]['num_graph_layer'],
                                 device=device)
-        
-        subagraphx_explainer = SubgraphXExplainer(graph_model=graph_type, num_layers=config['model']["kwargs"]['num_graph_layer'], 
+
+        subagraphx_explainer = SubgraphXExplainer(graph_model=graph_type,
+                                                  num_layers=config['model']["kwargs"]['num_graph_layer'],
                                                   device=device)
-        
 
-        # print('==========effect==========')
-        # explanation, scores = model.get_explanation(dataset, attn_explainer)
-        # config['log']['explainer'] = 'attn'
-        # config['log']['explanation'] = explanation
-        # config['log']['scores'] = scores
-        # print('Saving explanations...')
-        # with open(os.path.join(args.result_root,
-        #                        f"{args.market}-{args.graph_model}-{args.graph_type}-att-explanation"),
-        #           'wb') as f:
-        #     pickle.dump(config['log'], f)
+        eval_explanation(attn_explainer, 'effect', 100)
+        eval_explanation(xpath_explainer, 'xpath', 100)
+        eval_explanation(subagraphx_explainer, 'subgraphx', 200)
 
-        # print('==========xpath==========')
-        # explanation, scores = model.get_explanation(dataset, xpath_explainer)
-        # config['log']['explainer'] = 'xPath'
-        # config['log']['explanation'] = explanation
-        # config['log']['scores'] = scores
-        # print('Saving explanations...')
-        # with open(os.path.join(args.result_root,
-        #                        f"{args.market}-{args.graph_model}-{args.graph_type}-xpath-explanation"),
-        #           'wb') as f:
-        #     pickle.dump(config['log'], f)
-
-        print('==========subgraphx==========')
-        explanation, scores = model.get_explanation(dataset, subagraphx_explainer, step_size=50)
-        config['log']['explainer'] = 'SubgraphX'
-        config['log']['explanation'] = explanation
-        config['log']['scores'] = scores
-        print('Saving explanations...')
-        with open(os.path.join(args.result_root,
-                               f"{args.market}-{args.graph_model}-{args.graph_type}-subgraphx-explanation"),
-                  'wb') as f:
-            pickle.dump(config['log'], f)
