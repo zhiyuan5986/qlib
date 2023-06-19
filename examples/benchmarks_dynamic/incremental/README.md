@@ -2,12 +2,12 @@
 ## Introduction
 This is the official implementation of `DoubleAdapt`, an incremental learning framework for stock trend forecasting.
 
-The paper has been accepted by KDD 2023.
+The paper has been accepted by KDD 2023. [[arXiv](https://arxiv.org/abs/2306.09862)]
 
 ## Dataset
 Following DDG-DA, we run experiments on the crowd source version of qlib data which can be downloaded by
 ```bash
-wget https://github.com/chenditc/investment_data/releases/download/20220720/qlib_bin.tar.gz
+wget https://github.com/chenditc/investment_data/releases/download/2023-06-01/qlib_bin.tar.gz
 tar -zxvf qlib_bin.tar.gz -C ~/.qlib/qlib_data/crowd_data --strip-components=2
 ```
 Argument `--data_dir crowd_data` and `--data_dir cn_data` for crowd-source data and Yahoo-source data, respectively.
