@@ -36,7 +36,7 @@ from qlib.workflow.record_temp import PortAnaRecord, SigAnaRecord, SignalRecord
 
 class Benchmark:
     def __init__(self, data_dir="cn_data", market="csi300", model_type="linear", alpha="360", rank_label=True,
-                 lr=0.001, early_stop=8, reload=False,
+                 lr=0.001, early_stop=8, reload=False, horizon=1,
                  init_data=True,
                  h_path: Optional[str] = None,
                  train_start: Optional[str] = None,
@@ -53,7 +53,7 @@ class Benchmark:
                 qlib.init(
                     provider_uri="~/.qlib/qlib_data/" + data_dir, region="us" if self.data_dir == "us_data" else "cn",
                 )
-        self.horizon = 1
+        self.horizon = horizon
         # self.rolling_exp = rolling_exp
         self.model_type = model_type
         self.h_path = h_path
@@ -76,6 +76,7 @@ class Benchmark:
             self.benchmark = "SH000903"
         else:
             self.benchmark = "SH000300"
+        R.set_uri((DIRNAME / 'mlruns').as_uri())
 
     def basic_task(self):
         """For fast training rolling"""
@@ -104,7 +105,7 @@ class Benchmark:
             conf_path = (
                 DIRNAME.parent
                 / "benchmarks"
-                / "MLP"
+                / self.model_type
                 / "workflow_config_mlp_Alpha{}.yaml".format(self.alpha)
             )
             filename = "MLP_alpha{}_handler_horizon{}.pkl".format(
@@ -152,7 +153,6 @@ class Benchmark:
 
         if self.task_ext_conf is not None:
             task = update_config(task, self.task_ext_conf)
-        print(task)
 
         h_conf = task["dataset"]["kwargs"]["handler"]
         if not (self.model_type == "gbdt" and self.alpha == 158):
@@ -192,6 +192,7 @@ class Benchmark:
         if self.test_end is not None:
             seg = task["dataset"]["kwargs"]["segments"]["test"]
             task["dataset"]["kwargs"]["segments"]["test"] = seg[0], pd.Timestamp(self.test_end)
+        print(task)
         return task
 
     def get_fitted_model(self, suffix=""):

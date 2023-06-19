@@ -13,35 +13,10 @@ from qlib.contrib.meta.incremental.model import MetaCoG
 import fire
 
 from examples.benchmarks_dynamic.incremental.main import Incremental
-from examples.benchmarks_dynamic.baseline.benchmark import Benchmark
+from examples.benchmarks.benchmark import Benchmark
 
 
 class CML(Incremental):
-    def __init__(
-        self,
-        data_dir="cn_data",
-        market="csi300",
-        horizon=1,
-        lr=0.01,
-        alpha=360,
-        step=20,
-        rank_label=True,
-        forecast_model="linear",
-        tag="",
-        first_order=True,
-    ):
-        super().__init__(
-            data_dir=data_dir,
-            market=market,
-            horizon=horizon,
-            alpha=alpha,
-            lr=lr,
-            step=step,
-            rank_label=rank_label,
-            forecast_model=forecast_model,
-            tag=tag,
-            first_order=first_order,
-        )
 
     def offline_training(self, seed=43):
         torch.manual_seed(seed)
@@ -53,16 +28,18 @@ class CML(Incremental):
             alpha=self.alpha,
             market=self.market,
             rank_label=self.rank_label,
+            init_data=False
         )
+        R.set_uri("../../benchmarks/mlruns/")
         model = benchmark.get_fitted_model(f"_{seed}")
+        R.set_uri("./mlruns/")
 
         # with R.start(experiment_name=self.meta_exp_name):
         mm = MetaCoG(
-            self.task,
+            self.basic_task,
             is_rnn=self.is_rnn,
-            d_feat=self.d_feat,
             alpha=self.alpha,
-            lr=self.lr,
+            lr_model=0.001,
             first_order=self.first_order,
             pretrained_model=model,
         )
@@ -71,7 +48,7 @@ class CML(Incremental):
         if model is None:
             with R.start(experiment_name=benchmark.exp_name + f"_{seed}"):
                 model = init_instance_by_config(benchmark.basic_task()["model"])
-                model.model = mm.tn.model
+                model.model = mm.framework.model
                 R.save_objects(**{"params.pkl": model})
             # R.save_objects(model=mm)
         return mm

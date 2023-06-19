@@ -43,10 +43,10 @@ class LabelAdaptHeads(nn.Module):
             return (self.weight + 1e-9) * y.view(-1, 1) + self.bias
 
 class LabelAdapter(nn.Module):
-    def __init__(self, in_dim, L, num_head=4, temperature=4, hid_dim=32):
+    def __init__(self, x_dim, num_head=4, temperature=4, hid_dim=32):
         super().__init__()
         self.num_head = num_head
-        self.linear = nn.Linear(in_dim * L, hid_dim, bias=False)
+        self.linear = nn.Linear(x_dim, hid_dim, bias=False)
         self.P = nn.Parameter(torch.empty(num_head, hid_dim))
         init.kaiming_uniform_(self.P, a=math.sqrt(5))
         # self.heads = nn.ModuleList([LabelAdaptHead() for _ in range(num_head)])
@@ -80,13 +80,13 @@ class FeatureAdapter(nn.Module):
 
 
 class ForecastModel(nn.Module):
-    def __init__(self, task_config, dim=None, lr=0.001, need_permute=False, model=None):
+    def __init__(self, task_config, x_dim=None, lr=0.001, need_permute=False, model=None):
         super().__init__()
         self.lr = lr
         # self.lr = task_config["model"]['kwargs']['lr']
         self.criterion = nn.MSELoss()
         if task_config["model"]["class"] == "LinearModel":
-            self.model = nn.Linear(dim, 1)
+            self.model = nn.Linear(x_dim, 1)
             self.model.load_state_dict(
                 collections.OrderedDict(
                     {"weight": torch.from_numpy(model.coef_).unsqueeze(0), "bias": torch.tensor([model.intercept_]),}
@@ -126,13 +126,13 @@ class ForecastModel(nn.Module):
 
 class DoubleAdapt(ForecastModel):
     def __init__(
-        self, task_config, dim=None, lr=0.001, need_permute=False, model=None, seq_len=60, num_head=6, temperature=4,
+        self, task_config, factor_num, x_dim=None, lr=0.001, need_permute=False, model=None, num_head=8, temperature=10,
     ):
         super().__init__(
-            task_config=task_config, dim=dim, lr=lr, need_permute=need_permute, model=model,
+            task_config=task_config, x_dim=x_dim, lr=lr, need_permute=need_permute, model=model,
         )
-        self.teacher_x = FeatureAdapter(dim, num_head, temperature)
-        self.teacher_y = LabelAdapter(dim, seq_len, num_head, temperature)
+        self.teacher_x = FeatureAdapter(factor_num, num_head, temperature)
+        self.teacher_y = LabelAdapter(factor_num if x_dim is None else x_dim, num_head, temperature)
         self.meta_params = list(self.teacher_x.parameters()) + list(self.teacher_y.parameters())
         if self.device is not None:
             self.to(self.device)
@@ -144,9 +144,9 @@ class DoubleAdapt(ForecastModel):
 
 
 class CoG(ForecastModel):
-    def __init__(self, task_config, dim=None, lr=0.001, need_permute=False, model=None):
+    def __init__(self, task_config, x_dim=None, lr=0.001, need_permute=False, model=None):
         super().__init__(
-            task_config=task_config, dim=dim, lr=lr, need_permute=need_permute, model=model,
+            task_config=task_config, x_dim=x_dim, lr=lr, need_permute=need_permute, model=model,
         )
         self.mask = nn.ParameterList(
             [nn.Parameter(torch.randn_like(param.data) ** 2 + 1) for param in self.model.parameters()]

@@ -47,7 +47,6 @@ class RSR(Model):
 
     def __init__(
             self,
-            market_value_path='./data/csi300_market_value_07to22.pkl',
             stock_index='./data/csi300_stock_index.npy',
             stock2stock_matrix='./data/csi300_multi_stock2stock_all.npy',
             d_feat=6,
@@ -92,12 +91,12 @@ class RSR(Model):
             stock2stock_matrix = np.expand_dims(stock2stock_matrix, axis=2)
         self.stock2stock_matrix = torch.Tensor(stock2stock_matrix).to(self.device)
         self.num_relation = stock2stock_matrix.shape[2]  # the number of relations
-        with open(market_value_path, "rb") as fh:
-            # load market value
-            df_market_value = pickle5.load(fh)
-        # df_market_value = pd.read_pickle(args.market_value_path)
-        self.df_market_value = df_market_value / 1000000000
-        # market value of every day from 07 to 20
+        # with open(market_value_path, "rb") as fh:
+        #     # load market value
+        #     df_market_value = pickle5.load(fh)
+        # # df_market_value = pd.read_pickle(args.market_value_path)
+        # self.df_market_value = df_market_value / 1000000000
+        # # market value of every day from 07 to 20
         self.batch_size = -1
 
         self.logger.info(
@@ -139,7 +138,7 @@ class RSR(Model):
             np.random.seed(self.seed)
             torch.manual_seed(self.seed)
 
-        self.model = Model4_2_1(
+        self.model = RSRModel(
             d_feat=self.d_feat,
             hidden_size=self.hidden_size,
             num_layers=self.num_layers,
@@ -220,7 +219,7 @@ class RSR(Model):
         self.model.train()
 
         for i, slc in train_loader.iter_batch():
-            feature, label, market_value, stock_index, _ = train_loader.get(slc)
+            feature, label, stock_index, _ = train_loader.get(slc)
             pred = self.model(feature, self.stock2stock_matrix[stock_index][:, stock_index])
             loss = self.loss_fn(pred, label)
             self.train_optimizer.zero_grad()
@@ -241,7 +240,7 @@ class RSR(Model):
         losses = []
 
         for i, slc in test_loader.iter_daily():
-            feature, label, market_value, stock_index, index = test_loader.get(slc)
+            feature, label, stock_index, index = test_loader.get(slc)
 
             with torch.no_grad():
                 pred = self.model(feature, self.stock2stock_matrix[stock_index][:, stock_index])
@@ -259,14 +258,14 @@ class RSR(Model):
         df = dataset.prepare(segment, col_set=["feature", "label"], data_key=DataHandlerLP.DK_L, )
 
         start_index = 0
-        slc = slice(pd.Timestamp(dataset.segments[segment][0]), pd.Timestamp(dataset.segments[segment][1]))
-        df['market_value'] = self.df_market_value[slc]
-        df['market_value'] = df['market_value'].fillna(df['market_value'].mean())
+        # slc = slice(pd.Timestamp(dataset.segments[segment][0]), pd.Timestamp(dataset.segments[segment][1]))
+        # df['market_value'] = self.df_market_value[slc]
+        # df['market_value'] = df['market_value'].fillna(df['market_value'].mean())
         df['stock_index'] = 733
         df['stock_index'] = df.index.get_level_values('instrument').map(self.stock_index).fillna(733).astype(int)
         # the market value and stock_index added to each line
 
-        return DataLoader(df["feature"], df["label"], df['market_value'],
+        return DataLoader(df["feature"], df["label"],
                           df['stock_index'],
                           batch_size=self.batch_size, pin_memory=True, start_index=start_index,
                           device=self.device)
@@ -330,7 +329,7 @@ class RSR(Model):
 
         preds = []
         for i, slc in data_loader.iter_daily():
-            feature, label, market_value, stock_index, index = data_loader.get(slc)
+            feature, label, stock_index, index = data_loader.get(slc)
             with torch.no_grad():
                 pred = self.model(feature, self.stock2stock_matrix[stock_index][:, stock_index])
                 preds.append(pd.DataFrame({'score': pred.cpu().numpy()}, index=index))
@@ -362,21 +361,20 @@ def metric_fn(preds):
 
 class DataLoader:
 
-    def __init__(self, df_feature, df_label, df_market_value, df_stock_index, batch_size=800, pin_memory=True,
+    def __init__(self, df_feature, df_label, df_stock_index, batch_size=800, pin_memory=True,
                  start_index=0, device=None):
 
         assert len(df_feature) == len(df_label)
 
         self.df_feature = df_feature.values
         self.df_label = df_label.values
-        self.df_market_value = df_market_value
+        # self.df_market_value = df_market_value
         self.df_stock_index = df_stock_index
         self.device = device
 
         if pin_memory:
             self.df_feature = torch.tensor(self.df_feature, dtype=torch.float, device=device)
             self.df_label = torch.tensor(self.df_label, dtype=torch.float, device=device)
-            self.df_market_value = torch.tensor(self.df_market_value, dtype=torch.float, device=device)
             self.df_stock_index = torch.tensor(self.df_stock_index, dtype=torch.long, device=device)
 
         self.index = df_label.index
@@ -435,7 +433,7 @@ class DataLoader:
         #     yield slice(idx, idx + count) # NOTE: slice index will not cause copy
 
     def get(self, slc):
-        outs = self.df_feature[slc], self.df_label[slc][:, 0], self.df_market_value[slc], self.df_stock_index[slc]
+        outs = self.df_feature[slc], self.df_label[slc][:, 0], self.df_stock_index[slc]
         # outs = self.df_feature[slc], self.df_label[slc]
 
         if not self.pin_memory:
@@ -497,291 +495,3 @@ class RSRModel(nn.Module):
         # now hidden shape (N,64) stores all new embeddings
         pred_all = self.fc(hidden + x_hidden).squeeze()
         return pred_all
-
-
-class TGRSR(nn.Module):
-    # use different linear layer to encode different graph
-    # use independent rnn as uniform graph encoder
-    def __init__(self, num_relation, d_feat=6, hidden_size=64, num_layers=2, dropout=0.0,
-                 base_model="GRU", factor_num=3, sparsity=0.15, head_num=3):
-        super().__init__()
-
-        self.d_feat = d_feat
-        self.hidden_size = hidden_size
-        self.factor_num = factor_num
-        self.sparsity = sparsity
-        self.head_num = head_num
-        names = self.__dict__
-        for i in range(head_num):
-            names['rnn_' + str(i)] = nn.GRU(
-                input_size=d_feat,
-                hidden_size=hidden_size,
-                num_layers=num_layers,
-                batch_first=True,
-                dropout=dropout,
-            )
-            names['W_' + str(i)] = torch.nn.Parameter(torch.randn((hidden_size * 2), 1))
-            names['W_' + str(i)].require_grad = True
-            torch.nn.init.xavier_uniform_(names['W_' + str(i)])
-            names['b_' + str(i)] = torch.nn.Parameter(torch.tensor(0, dtype=torch.float))
-            names['b_' + str(i)].requires_grad = True
-
-        self.rnn = nn.GRU(
-            input_size=d_feat,
-            hidden_size=hidden_size,
-            num_layers=num_layers,
-            batch_first=True,
-            dropout=dropout,
-        )
-
-        self.W = torch.nn.Parameter(torch.randn((hidden_size * 2) + num_relation, 1))
-        self.W.requires_grad = True
-        torch.nn.init.xavier_uniform_(self.W)
-        self.b = torch.nn.Parameter(torch.tensor(0, dtype=torch.float))
-        self.b.requires_grad = True
-
-        self.leaky_relu = nn.LeakyReLU()
-        # if use for loop in forward, change dim to 0
-        self.softmax1 = torch.nn.Softmax(dim=1)
-        self.fc = nn.Linear(hidden_size * (2 + head_num), 1)
-
-    @staticmethod
-    def sim_matrix(a, b, eps=1e-6):
-        """
-        added eps for numerical stability
-        """
-        a_n, b_n = a.norm(dim=1)[:, None], b.norm(dim=1)[:, None]
-        a_norm = a / torch.max(a_n, eps * torch.ones_like(a_n))
-        b_norm = b / torch.max(b_n, eps * torch.ones_like(b_n))
-        sim_mt = torch.mm(a_norm, b_norm.transpose(0, 1))
-        return sim_mt
-
-    @staticmethod
-    def generate_mask(a, N, sparsity=0.1):
-        v, i = torch.topk(a.flatten(), int(N * N * sparsity))
-        return torch.ones(N, N, device=a.device) * (a >= v[-1])
-
-    def build_att_tensor(self, x, raw, index):
-        name = self.__dict__
-        gru = name['rnn_' + str(index)].to(x.device)
-        g_hidden, _ = gru(raw)
-        f = g_hidden[:, -1, :]
-        N = len(x)
-        eye = torch.eye(N, N, device=f.device)
-        g = self.sim_matrix(f, f) - eye  # shape [N, N]
-        ei = x.unsqueeze(1).repeat(1, N, 1)  # shape N,N,64
-        hidden_batch = x.unsqueeze(0).repeat(N, 1, 1)  # shape N,N,64
-        matrix = torch.cat((ei, hidden_batch), 2)  # matrix shape N,N,128
-        W = name['W_' + str(index)].to(x.device)
-        b = name['b_' + str(index)].to(x.device)
-        weight = (torch.matmul(matrix, W) + b).squeeze(2)
-        weight = self.leaky_relu(weight)  # relu layer
-        # valid_weight = g * weight
-        index = torch.t((g == 0).nonzero())
-        valid_weight = g * weight
-        valid_weight[index[0], index[1]] = -1e10
-        valid_weight = self.softmax1(valid_weight)  # shape N,N
-        hidden = torch.matmul(valid_weight, x)  # shape N, hidden_size
-        return hidden
-
-    def forward(self, x, relation_matrix):
-        # N = the number of stock in current slice
-        # F = feature length
-        # T = number of days, usually = 60, since F*T should be 360
-        # x is the feature of all stocks in one day
-        # GAT use homo relation instead
-        # device = torch.device(torch.get_device(x))
-        x_hidden_raw = x.reshape(len(x), self.d_feat, -1)  # [N, F, T]
-        x_hidden_raw = x_hidden_raw.permute(0, 2, 1)  # [N, T, F]
-        x_hidden, _ = self.rnn(x_hidden_raw)
-
-        x_hidden = x_hidden[:, -1, :]  # [N, 64]
-        hidden_vector = [x_hidden]
-        for h_n in range(self.head_num):
-            head_hidden = self.build_att_tensor(x_hidden, x_hidden_raw, h_n)
-            hidden_vector.append(head_hidden)
-
-        ei = x_hidden.unsqueeze(1).repeat(1, relation_matrix.shape[0], 1)  # shape N,N,64
-        hidden_batch = x_hidden.unsqueeze(0).repeat(relation_matrix.shape[0], 1, 1)  # shape N,N,64
-        matrix = torch.cat((ei, hidden_batch, relation_matrix), 2)  # matrix shape N,N,64+关系数
-        weight = (torch.matmul(matrix, self.W) + self.b).squeeze(2)  # weight shape N,N
-        weight = self.leaky_relu(weight)  # relu layer
-        index = torch.t(torch.nonzero(torch.sum(relation_matrix, 2)))
-        mask = torch.zeros(relation_matrix.shape[0], relation_matrix.shape[1], device=x_hidden.device)
-        mask[index[0], index[1]] = 1
-        temp_weight = mask * weight
-        index_2 = torch.t((temp_weight == 0).nonzero())
-        temp_weight[index_2[0], index_2[1]] = -100000
-        valid_weight = self.softmax1(temp_weight)  # N,N
-        valid_weight = valid_weight * mask
-        relation_hidden = torch.matmul(valid_weight, x_hidden)
-        hidden_vector.append(relation_hidden)
-
-        hidden = torch.cat(hidden_vector, 1)
-        # now hidden shape (N,hidden_size*2) stores all new embeddings
-        pred = self.fc(hidden).squeeze()
-        return pred
-
-
-class Model4_2_1(nn.Module):
-    # use different linear layer to encode different graph
-    # use independent rnn as uniform graph encoder
-    # add RSR and ALSTM as a part of hidden vector
-    def __init__(self, num_relation, d_feat=6, hidden_size=64, num_layers=2, dropout=0.0,
-                 base_model="GRU", factor_num=3, sparsity=0.15, head_num=7):
-        super().__init__()
-
-        self.d_feat = d_feat
-        self.hidden_size = hidden_size
-        self.factor_num = factor_num
-        self.sparsity = sparsity
-        self.head_num = head_num
-        self.base_model = base_model
-        self.num_layers = num_layers
-        self.dropout = dropout
-        names = self.__dict__
-        for i in range(head_num):
-            names['rnn_' + str(i)] = nn.GRU(
-                input_size=d_feat,
-                hidden_size=hidden_size,
-                num_layers=num_layers,
-                batch_first=True,
-                dropout=dropout,
-            )
-            names['W_' + str(i)] = torch.nn.Parameter(torch.randn((hidden_size * 2), 1))
-            names['W_' + str(i)].require_grad = True
-            torch.nn.init.xavier_uniform_(names['W_' + str(i)])
-            names['b_' + str(i)] = torch.nn.Parameter(torch.tensor(0, dtype=torch.float))
-            names['b_' + str(i)].requires_grad = True
-
-        # self.rnn = nn.GRU(
-        #     input_size=d_feat,
-        #     hidden_size=hidden_size,
-        #     num_layers=num_layers,
-        #     batch_first=True,
-        #     dropout=dropout,
-        # )
-
-        self.W = torch.nn.Parameter(torch.randn((hidden_size * 2) + num_relation, 1))
-        self.W.requires_grad = True
-        torch.nn.init.xavier_uniform_(self.W)
-        self.b = torch.nn.Parameter(torch.tensor(0, dtype=torch.float))
-        self.b.requires_grad = True
-
-        self.leaky_relu = nn.LeakyReLU()
-        # if use for loop in forward, change dim to 0
-        self.softmax1 = torch.nn.Softmax(dim=1)
-        self.fc = nn.Linear(hidden_size * (3 + head_num), 1)
-        self._build_model()
-
-    @staticmethod
-    def sim_matrix(a, b, eps=1e-6):
-        """
-        added eps for numerical stability
-        """
-        a_n, b_n = a.norm(dim=1)[:, None], b.norm(dim=1)[:, None]
-        a_norm = a / torch.max(a_n, eps * torch.ones_like(a_n))
-        b_norm = b / torch.max(b_n, eps * torch.ones_like(b_n))
-        sim_mt = torch.mm(a_norm, b_norm.transpose(0, 1))
-        return sim_mt
-
-    @staticmethod
-    def generate_mask(a, N, sparsity=0.1):
-        v, i = torch.topk(a.flatten(), int(N * N * sparsity))
-        return torch.ones(N, N, device=a.device) * (a >= v[-1])
-
-    def _build_model(self):
-        try:
-            rnn = getattr(nn, self.base_model.upper())
-        except Exception as e:
-            raise ValueError("unknown rnn_type `%s`" % self.base_model) from e
-        self.net = nn.Sequential()
-        self.net.add_module("fc_in", nn.Linear(in_features=self.d_feat, out_features=self.hidden_size))
-        self.net.add_module("act", nn.Tanh())
-        self.rnn = rnn(
-            input_size=self.hidden_size,
-            hidden_size=self.hidden_size,
-            num_layers=self.num_layers,
-            batch_first=True,
-            dropout=self.dropout,
-        )
-        self.fc_out = nn.Linear(in_features=self.hidden_size * 2, out_features=1)
-        self.att_net = nn.Sequential()
-        self.att_net.add_module(
-            "att_fc_in",
-            nn.Linear(in_features=self.hidden_size, out_features=int(self.hidden_size / 2)),
-        )
-        self.att_net.add_module("att_dropout", torch.nn.Dropout(self.dropout))
-        self.att_net.add_module("att_act", nn.Tanh())
-        self.att_net.add_module(
-            "att_fc_out",
-            nn.Linear(in_features=int(self.hidden_size / 2), out_features=1, bias=False),
-        )
-        self.att_net.add_module("att_softmax", nn.Softmax(dim=1))
-
-    def build_att_tensor(self, x, raw, index):
-        name = self.__dict__
-        gru = name['rnn_' + str(index)].to(x.device)
-        g_hidden, _ = gru(raw)
-        f = g_hidden[:, -1, :]
-        N = len(x)
-        eye = torch.eye(N, N, device=f.device)
-        g = self.sim_matrix(f, f) - eye  # shape [N, N]
-        ei = x.unsqueeze(1).repeat(1, N, 1)  # shape N,N,64
-        hidden_batch = x.unsqueeze(0).repeat(N, 1, 1)  # shape N,N,64
-        matrix = torch.cat((ei, hidden_batch), 2)  # matrix shape N,N,128
-        W = name['W_' + str(index)].to(x.device)
-        b = name['b_' + str(index)].to(x.device)
-        weight = (torch.matmul(matrix, W) + b).squeeze(2)
-        weight = self.leaky_relu(weight)  # relu layer
-        # valid_weight = g * weight
-        index = torch.t((g == 0).nonzero())
-        valid_weight = g * weight
-        valid_weight[index[0], index[1]] = -1e10
-        valid_weight = self.softmax1(valid_weight)  # shape N,N
-        hidden = torch.matmul(valid_weight, x)  # shape N, hidden_size
-        return hidden
-
-    def forward(self, x, relation_matrix):
-        # N = the number of stock in current slice
-        # F = feature length
-        # T = number of days, usually = 60, since F*T should be 360
-        # x is the feature of all stocks in one day
-        # GAT use homo relation instead
-        # device = torch.device(torch.get_device(x))
-        x_hidden_raw = x.reshape(len(x), self.d_feat, -1)  # [N, F, T]
-        x_hidden_raw = x_hidden_raw.permute(0, 2, 1)  # [N, T, F]
-        x_hidden, _ = self.rnn(self.net(x_hidden_raw))
-
-        # ------ALSTM--------------
-        att_score = self.att_net(x_hidden)
-        alstm_out = torch.mul(x_hidden, att_score)
-        alstm_out = torch.sum(alstm_out, dim=1)  # shape N*hidden_size
-
-        x_hidden = x_hidden[:, -1, :]  # [N, 64]
-        hidden_vector = [x_hidden, alstm_out]
-        for h_n in range(self.head_num):
-            head_hidden = self.build_att_tensor(x_hidden, x_hidden_raw, h_n)
-            hidden_vector.append(head_hidden)
-
-        # ---------RSR-----------
-        ei = x_hidden.unsqueeze(1).repeat(1, relation_matrix.shape[0], 1)  # shape N,N,64
-        hidden_batch = x_hidden.unsqueeze(0).repeat(relation_matrix.shape[0], 1, 1)  # shape N,N,64
-        matrix = torch.cat((ei, hidden_batch, relation_matrix), 2)  # matrix shape N,N,64+关系数
-        weight = (torch.matmul(matrix, self.W) + self.b).squeeze(2)  # weight shape N,N
-        weight = self.leaky_relu(weight)  # relu layer
-        index = torch.t(torch.nonzero(torch.sum(relation_matrix, 2)))
-        mask = torch.zeros(relation_matrix.shape[0], relation_matrix.shape[1], device=x_hidden.device)
-        mask[index[0], index[1]] = 1
-        temp_weight = mask * weight
-        index_2 = torch.t((temp_weight == 0).nonzero())
-        temp_weight[index_2[0], index_2[1]] = -100000
-        valid_weight = self.softmax1(temp_weight)  # N,N
-        valid_weight = valid_weight * mask
-        relation_hidden = torch.matmul(valid_weight, x_hidden)
-        hidden_vector.append(relation_hidden)
-
-        hidden = torch.cat(hidden_vector, 1)
-        # now hidden shape (N,hidden_size*2) stores all new embeddings
-        pred = self.fc(hidden).squeeze()
-        return pred

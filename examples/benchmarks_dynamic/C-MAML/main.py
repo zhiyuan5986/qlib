@@ -2,6 +2,14 @@
 # Licensed under the MIT License.
 import copy
 from pathlib import Path
+import sys
+
+from qlib.utils.data import deepcopy_basic_type
+
+DIRNAME = Path(__file__).absolute().resolve().parent
+sys.path.append(str(DIRNAME))
+sys.path.append(str(DIRNAME.parent.parent.parent))
+
 import torch
 
 from qlib.data.dataset import Dataset, TSDataSampler
@@ -11,12 +19,6 @@ from qlib.utils import init_instance_by_config
 from qlib.data.dataset.handler import DataHandlerLP
 
 import fire
-import sys
-
-DIRNAME = Path(__file__).absolute().resolve().parent
-sys.path.append(str(DIRNAME))
-sys.path.append(str(DIRNAME.parent.parent.parent))
-from examples.benchmarks_dynamic.baseline.benchmark import Benchmark
 from examples.benchmarks_dynamic.incremental.main import Incremental
 from qlib.contrib.meta.incremental.utils import preprocess
 from qlib.contrib.meta.incremental.dataset import MetaDatasetInc
@@ -24,38 +26,15 @@ from qlib.contrib.meta.incremental.model import CMAML
 
 
 class OKASA(Incremental):
-    def __init__(
-        self,
-        data_dir="cn_data",
-        market="csi300",
-        horizon=1,
-        alpha=360,
-        step=20,
-        rank_label=True,
-        forecast_model="linear",
-        tag="",
-        first_order=True,
-    ):
-        super().__init__(
-            data_dir=data_dir,
-            market=market,
-            horizon=horizon,
-            alpha=alpha,
-            step=step,
-            rank_label=rank_label,
-            forecast_model=forecast_model,
-            tag=tag,
-            first_order=first_order,
-        )
 
     @property
     def meta_exp_name(self):
         return f"CMAML_{self.market}_{self.forecast_model}_alpha{self.alpha}_horizon{self.horizon}_step{self.step}_rank{self.rank_label}_{self.tag}"
 
     def dump_data(self):
-        segments = self.task["dataset"]["kwargs"]["segments"]
+        segments = self.basic_task["dataset"]["kwargs"]["segments"]
 
-        t = copy.deepcopy(self.task)
+        t = copy.deepcopy(self.basic_task)
         t["dataset"]["kwargs"]["segments"]["train"] = (
             segments["train"][0],
             segments["test"][1],
@@ -68,13 +47,13 @@ class OKASA(Incremental):
         # else:
         #     data = None
 
-        rolling_task = self.rb.basic_task()
+        rolling_task = deepcopy_basic_type(self.basic_task)
         if "pt_model_kwargs" in rolling_task["model"]["kwargs"] and rolling_task["model"]["class"] != "DNNModelPytorch":
-            self.d_feat = rolling_task["model"]["kwargs"]["pt_model_kwargs"]["input_dim"]
+            self.factor_num = rolling_task["model"]["kwargs"]["pt_model_kwargs"]["input_dim"]
         elif "d_feat" in rolling_task["model"]["kwargs"]:
-            self.d_feat = rolling_task["model"]["kwargs"]["d_feat"]
+            self.factor_num = rolling_task["model"]["kwargs"]["d_feat"]
         else:
-            self.d_feat = 6 if self.alpha == 360 else 20
+            self.factor_num = 6 if self.alpha == 360 else 20
 
         trunc_days = self.horizon if self.data_dir == "us_data" else (self.horizon + 1)
         gen = RollingGen(step=self.step, rtype=RollingGen.ROLL_SD)
@@ -106,14 +85,18 @@ class OKASA(Incremental):
         md_offline = MetaDatasetInc(data=data, **kwargs)
         md_offline.meta_task_l = preprocess(
             md_offline.meta_task_l,
-            d_feat=self.d_feat,
+            factor_num=self.factor_num,
             is_mlp=self.forecast_model == "MLP",
             alpha=self.alpha,
             step=self.step,
             H=self.horizon if self.data_dir == "us_data" else (1 + self.horizon),
-            need_permute=not self.forecast_model in ["TCN"],
         )
-        self.L = md_offline.meta_task_l[0].get_meta_input()["X_test"].shape[1]
+        L = md_offline.meta_task_l[0].get_meta_input()["X_test"].shape[1]
+        if self.not_sequence:
+            self.x_dim = L
+            self.factor_num = self.x_dim
+        else:
+            self.x_dim = self.factor_num * L
 
         test_begin = segments["valid"][0]
         # train_end = gen.ta.get(gen.ta.align_idx(train_begin) + gen.step - 1)
@@ -140,12 +123,11 @@ class OKASA(Incremental):
         md_online = MetaDatasetInc(data=data, data_I=data_I, **kwargs)
         md_online.meta_task_l = preprocess(
             md_online.meta_task_l,
-            d_feat=self.d_feat,
+            factor_num=self.factor_num,
             is_mlp=self.forecast_model == "MLP",
             alpha=self.alpha,
             step=self.step,
             H=self.horizon if self.data_dir == "us_data" else (1 + self.horizon),
-            need_permute=not self.forecast_model in ["TCN"],
         )
         return md_offline, md_online
 
@@ -156,28 +138,15 @@ class OKASA(Incremental):
         torch.manual_seed(seed)
         torch.cuda.manual_seed(seed)
 
-        if self.forecast_model in ["TCN",] and self.alpha == 360:
-            model = Benchmark(
-                data_dir=self.data_dir,
-                model_type=self.forecast_model,
-                alpha=self.alpha,
-                market=self.market,
-                rank_label=self.rank_label,
-            ).get_fitted_model(f"_{seed}")
-        else:
-            model = None
-
         # with R.start(experiment_name=self.meta_exp_name):
         mm = CMAML(
-            self.task,
+            self.basic_task,
             sample_num=8000 if self.market == "csi500" else 5000,
-            is_seq=self.is_rnn,
-            d_feat=self.d_feat,
+            x_dim=self.x_dim,
+            is_rnn=self.is_rnn,
             alpha=self.alpha,
             first_order=self.first_order,
-            num_head=self.num_head,
-            temperature=self.temperature,
-            pretrained_model=model,
+            pretrained_model=None,
         )
         mm.fit(self.meta_dataset_offline)
         # R.save_objects(model=mm)

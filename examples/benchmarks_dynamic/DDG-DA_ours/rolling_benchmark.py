@@ -318,7 +318,7 @@ class RollingBenchmark:
             torch.manual_seed(i + 43)
             torch.cuda.manual_seed(i + 43)
             start_time = time.time()
-            self.tag = str(time.time())
+            self.tag = time.strftime('%Y-%m-%d_%H:%M:%S', time.localtime())
             rec = self.run_all()
             test_time.append(time.time() - start_time)
             # exp = R.get_exp(experiment_name=self.COMB_EXP)

@@ -55,7 +55,7 @@ If your GPU is limited, try to set a smaller `step` (e.g., 5) which may takes up
 > The reason why we set `step` to 20 rather than 5 is that 
 RR and DDG-DA bear unaffordable time cost (e.g., 3 days for 10 runs) in experiments with `step` set to 5.   
 
-## Remark
+## Remarks
 ### Carefully select `step` according to `horizon`
 Argument `--horizon` decides the target label to be `Ref($close, -horizon-1}) / Ref($close, -1) - 1` in the China A-share market. 
 Accordingly, there are always unknown ground-truth labels in the lasted `horizon` days of test data, and we can only use the rest for optimization of the meta-learners.

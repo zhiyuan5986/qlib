@@ -1,3 +1,4 @@
+import traceback
 import warnings
 from collections import defaultdict
 import numpy as np
@@ -25,7 +26,7 @@ def get_data_from_seg(seg, data, test=False):
             else data.loc(axis=0)[seg[0] :]
         )
     except Exception as e:
-        warnings.warn(f"{e} when processing segment {seg}")
+        traceback.print_exc()
         new_seg = [seg[0], seg[1]]
         all_dates = data.index.levels[0]
         if seg[0] not in all_dates:
@@ -84,7 +85,7 @@ def _mask_mlp158(meta_input):
 
 
 def preprocess(
-    task_list, d_feat=6, is_mlp=False, alpha=360, step=20, H=1, need_permute=True, need_flatten=False, to_tensor=True,
+    task_list, factor_num=6, is_mlp=False, alpha=360, step=20, H=1, not_sequence=False, to_tensor=True,
 ):
     skip = []
     for i, task in enumerate(task_list):
@@ -102,7 +103,7 @@ def preprocess(
         if is_mlp and alpha == 158:
             _mask_mlp158(meta_input)
 
-        if need_flatten:
+        if not_sequence:
             if alpha == 158:
                 for dt in data_type:
                     k = "X_" + dt
@@ -110,12 +111,11 @@ def preprocess(
         elif alpha == 360:
             for dt in data_type:
                 k = "X_" + dt
-                meta_input[k] = meta_input[k].reshape(len(meta_input[k]), d_feat, -1)
-                if need_permute:
-                    if isinstance(meta_input[k], torch.Tensor):
-                        meta_input[k] = meta_input[k].permute(0, 2, 1)
-                    else:
-                        meta_input[k] = meta_input[k].transpose(0, 2, 1)
+                meta_input[k] = meta_input[k].reshape(len(meta_input[k]), factor_num, -1)
+                if isinstance(meta_input[k], torch.Tensor):
+                    meta_input[k] = meta_input[k].permute(0, 2, 1)
+                else:
+                    meta_input[k] = meta_input[k].transpose(0, 2, 1)
 
         test_date = meta_input["test_idx"].codes[0] - meta_input["test_idx"].codes[0][0]
         meta_input["meta_end"] = (test_date <= (test_date[-1] - H + 1)).sum()

@@ -349,7 +349,7 @@ class DDGDA:
             rank_label=self.rank_label,
             init_data=False,
         )
-        rb.tag = str(time.time()) + "_DDG-DA"
+        rb.tag = time.strftime('%Y-%m-%d_%H:%M:%S', time.localtime()) + "_DDG-DA"
         rec = rb.run_all(tasks)
         return rec, rb.COMB_EXP
 

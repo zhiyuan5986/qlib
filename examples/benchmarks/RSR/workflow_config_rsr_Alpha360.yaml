@@ -59,7 +59,6 @@ task:
             metric: ic
             loss: mse
             base_model: GRU
-            market_value_path: "/data/zhaolifan/project/qlib/examples/benchmarks/NRSR/csi300_market_value_07to22.pkl"
             stock2stock_matrix: "/data/zhaolifan/project/qlib/examples/benchmarks/NRSR/csi300_multi_stock2stock_all.npy"
             stock_index: "/data/zhaolifan/project/qlib/examples/benchmarks/NRSR/csi300_stock_index.npy"
             GPU: 0

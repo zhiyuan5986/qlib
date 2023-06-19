@@ -20,7 +20,6 @@ import fire
 import yaml
 import pandas as pd
 from qlib import auto_init
-from pathlib import Path
 from tqdm.auto import tqdm
 from qlib.model.trainer import TrainerR
 from qlib.log import get_module_logger
@@ -28,7 +27,6 @@ from qlib.utils.data import update_config
 from qlib.workflow import R, Experiment
 from qlib.tests.data import GetData
 
-DIRNAME = Path(__file__).absolute().resolve().parent
 from qlib.workflow.task.gen import task_generator, RollingGen
 from qlib.workflow.task.collect import RecorderCollector
 from qlib.workflow.record_temp import PortAnaRecord, SigAnaRecord
@@ -50,7 +48,9 @@ class RollingBenchmark:
         test_start: Optional[str] = None,
         test_end: Optional[str] = None,
         task_ext_conf: Optional[dict] = None,
+        reload_tag: Optional[list] = None,
     ) -> None:
+        self.reload_tags = reload_tag
         self.data_dir = data_dir
         self.market = market
         if init_data:
@@ -116,7 +116,7 @@ class RollingBenchmark:
                 DIRNAME.parent.parent / "benchmarks" / "MLP" / "workflow_config_mlp_Alpha{}.yaml".format(self.alpha)
             )
             # dump the processed data on to disk for later loading to speed up the processing
-            filename = "mlp_alpha{}_handler_horizon{}.pkl".format(self.alpha, self.horizon)
+            filename = "MLP_alpha{}_handler_horizon{}.pkl".format(self.alpha, self.horizon)
         else:
             conf_path = (
                 DIRNAME.parent.parent
@@ -188,6 +188,8 @@ class RollingBenchmark:
             h.to_pickle(h_path, dump_all=True)
             print('Save handler file to', h_path)
 
+        # if not self.rank_label:
+        #     task['model']['kwargs']['loss'] = 'ic'
         task["dataset"]["kwargs"]["handler"] = f"file://{h_path}"
         task["record"] = ["qlib.workflow.record_temp.SignalRecord"]
 
@@ -218,9 +220,9 @@ class RollingBenchmark:
         trainer = TrainerR(experiment_name=self.rolling_exp)
         trainer(task_l)
 
-    def ens_rolling(self):
+    def ens_rolling(self, exp_name):
         rc = RecorderCollector(
-            experiment=self.rolling_exp,
+            experiment=exp_name,
             artifacts_key=["pred", "label"],
             process_list=[RollingEnsemble()],
             # rec_key_func=lambda rec: (self.COMB_EXP, rec.info["id"]),
@@ -274,12 +276,15 @@ class RollingBenchmark:
         print(f"Your evaluation results can be found in the experiment named `{self.COMB_EXP}`.")
         return rec
 
-    def run_all(self, task_l=None):
+    def run_all(self, task_l=None, reload_tag=None):
         # the results will be  save in mlruns.
-        # 1) each rolling task is saved in rolling_models
-        self.train_rolling_tasks(task_l)
+        if reload_tag is None:
+            # 1) each rolling task is saved in rolling_models
+            self.train_rolling_tasks(task_l)
+        else:
+            self.tag = reload_tag
         # 2) combined rolling tasks and evaluation results are saved in rolling
-        preds = self.ens_rolling()
+        preds = self.ens_rolling(self.rolling_exp)
         rec = self.update_rolling_rec(preds)
         return rec
 
@@ -298,13 +303,25 @@ class RollingBenchmark:
             ]
         }
         test_time = []
+        R.set_uri((DIRNAME / 'mlruns').as_uri())
         for i in range(5):
             np.random.seed(i + 43)
             torch.manual_seed(i + 43)
             torch.cuda.manual_seed(i + 43)
             start_time = time.time()
-            self.tag = str(time.time())
-            rec = self.run_all()
+            self.tag = time.strftime('%Y-%m-%d_%H:%M:%S', time.localtime())
+            reload_tag = None
+            if self.reload_tags and len(self.reload_tags) > i:
+                self.tag = self.reload_tags[i]
+                try:
+                    print(self.tag)
+                    R.get_exp(experiment_name=self.rolling_exp, create=False)
+                    reload_tag = self.reload_tags[i]
+                except Exception as e:
+                    self.logger.info(e)
+                    self.logger.info('Start retraining from scratch...')
+                    reload_tag = None
+            rec = self.run_all(reload_tag=reload_tag)
             test_time.append(time.time() - start_time)
             # exp = R.get_exp(experiment_name=self.COMB_EXP)
             # rec = exp.list_recorders(rtype=exp.RT_L)[0]

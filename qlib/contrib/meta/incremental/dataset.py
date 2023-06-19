@@ -16,9 +16,6 @@ from tqdm.auto import tqdm
 
 from .utils import get_data_from_seg, get_data_and_idx
 
-import psutil
-
-memory = psutil.virtual_memory()
 
 class MetaTaskInc:
     """Meta task for incremental learning"""

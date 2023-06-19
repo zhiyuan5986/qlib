@@ -36,10 +36,11 @@ from qlib.workflow.record_temp import PortAnaRecord, SigAnaRecord, SignalRecord
 
 class Benchmark:
     def __init__(self, data_dir="cn_data", market="csi300", model_type="linear", alpha="360", rank_label=True,
-                 lr=0.001, early_stop=8, reload=False,
+                 lr=0.001, early_stop=8, reload=False, horizon=1,
                  init_data=True,
                  h_path: Optional[str] = None,
                  train_start: Optional[str] = None,
+                 test_start: Optional[str] = None,
                  test_end: Optional[str] = None,
                  task_ext_conf: Optional[dict] = None,) -> None:
         self.data_dir = data_dir
@@ -52,7 +53,8 @@ class Benchmark:
                 qlib.init(
                     provider_uri="~/.qlib/qlib_data/" + data_dir, region="us" if self.data_dir == "us_data" else "cn",
                 )
-        self.horizon = 1
+        self.horizon = horizon
+        # self.rolling_exp = rolling_exp
         self.model_type = model_type
         self.h_path = h_path
         self.train_start = train_start
@@ -73,6 +75,7 @@ class Benchmark:
             self.benchmark = "SH000903"
         else:
             self.benchmark = "SH000300"
+        R.set_uri((DIRNAME / 'mlruns').as_uri())
 
     def basic_task(self):
         """For fast training rolling"""
@@ -189,9 +192,14 @@ class Benchmark:
             seg = task["dataset"]["kwargs"]["segments"]["train"]
             task["dataset"]["kwargs"]["segments"]["train"] = pd.Timestamp(self.train_start), seg[1]
 
+        if self.test_start is not None:
+            seg = task["dataset"]["kwargs"]["segments"]["train"]
+            task["dataset"]["kwargs"]["segments"]["test"] = pd.Timestamp(self.test_start), seg[1]
+
         if self.test_end is not None:
             seg = task["dataset"]["kwargs"]["segments"]["test"]
             task["dataset"]["kwargs"]["segments"]["test"] = seg[0], pd.Timestamp(self.test_end)
+        print(task)
         return task
 
     def get_fitted_model(self, suffix=""):
@@ -285,12 +293,12 @@ class Benchmark:
         all_metrics = {
             k: []
             for k in [
-                'mse', 'mae',
+                # 'mse', 'mae',
                 "IC",
                 "ICIR",
-                "Rank IC",
-                "Rank ICIR",
-                "1day.excess_return_with_cost.annualized_return",
+                # "Rank IC",
+                # "Rank ICIR",
+                # "1day.excess_return_with_cost.annualized_return",
                 # "1day.excess_return_with_cost.information_ratio",
                 # "1day.excess_return_with_cost.max_drawdown",
             ]
