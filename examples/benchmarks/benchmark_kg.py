@@ -57,6 +57,7 @@ class Benchmark:
         # self.rolling_exp = rolling_exp
         self.model_type = model_type
         self.h_path = h_path
+        self.test_start = test_start
         self.train_start = train_start
         self.test_end = test_end
         self.task_ext_conf = task_ext_conf
