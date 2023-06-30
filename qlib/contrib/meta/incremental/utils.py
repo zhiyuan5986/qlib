@@ -5,6 +5,8 @@ import numpy as np
 import torch
 from typing import List
 
+from torch import nn
+
 from qlib.data.dataset import TSDataSampler
 
 
@@ -134,4 +136,11 @@ def preprocess(
                 task_list[j].processed_meta_input[key] = task_list[i].processed_meta_input[key]
         task_list = [task_list[i] for i in range(len(task_list)) if i not in skip]
     return task_list
+
+
+def has_rnn(module: nn.Module):
+    for module in module.modules():
+        if isinstance(module, nn.RNNBase):
+            return True
+    return False
 

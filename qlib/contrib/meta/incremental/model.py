@@ -14,7 +14,7 @@ import torch.nn.functional as F
 import higher
 from . import higher_optim  # IMPORTANT, DO NOT DELETE
 
-from .utils import override_state
+from .utils import override_state, has_rnn
 from .dataset import MetaDatasetInc
 from .net import DoubleAdapt, ForecastModel, CoG
 
@@ -26,7 +26,6 @@ class MetaModelInc(MetaTaskModel):
         task_config,
         lr_model=0.001,
         first_order=True,
-        is_rnn=False,
         x_dim=None,
         alpha=360,
         pretrained_model=None,
@@ -36,11 +35,11 @@ class MetaModelInc(MetaTaskModel):
         self.task_config = task_config
         self.lr_model = lr_model
         self.first_order = first_order
-        self.is_rnn = is_rnn
         self.begin_valid_epoch = begin_valid_epoch
         self.framework = self._init_framework(task_config, x_dim, lr_model, need_permute=int(alpha) == 360,
                                               model=pretrained_model, **kwargs)
         self.opt = self._init_meta_optimizer(**kwargs)
+        self.has_rnn = has_rnn(self.framework)
 
     def _init_framework(self, task_config, x_dim=None, lr_model=0.001, need_permute=False, model=None, **kwargs):
         return ForecastModel(task_config, x_dim=x_dim, lr=lr_model, need_permute=need_permute, model=model)
@@ -151,7 +150,6 @@ class DoubleAdaptManager(MetaModelInc):
         adapt_x=True,
         adapt_y=True,
         first_order=True,
-        is_rnn=False,
         factor_num=6,
         x_dim=360,
         alpha=360,
@@ -161,7 +159,7 @@ class DoubleAdaptManager(MetaModelInc):
         begin_valid_epoch=0,
     ):
         super(DoubleAdaptManager, self).__init__(task_config, x_dim=x_dim, lr_model=lr_model,
-                                                 first_order=first_order, is_rnn=is_rnn, alpha=alpha,
+                                                 first_order=first_order, alpha=alpha,
                                                  pretrained_model=pretrained_model,
                                                  begin_valid_epoch=begin_valid_epoch)
         self.lr_da = lr_da
@@ -202,7 +200,7 @@ class DoubleAdaptManager(MetaModelInc):
             track_higher_grads=not self.first_order,
             override={'lr': [self.lr_model]}
         ) as (fmodel, diffopt):
-            with torch.backends.cudnn.flags(enabled=self.first_order or not self.is_rnn):
+            with torch.backends.cudnn.flags(enabled=self.first_order or not self.has_rnn):
                 y_hat, _ = self.framework(X, model=fmodel, transform=self.adapt_x)
         y = meta_input["y_train"].to(self.framework.device)
         if self.adapt_y:
@@ -371,7 +369,7 @@ class CMAML(MetaModelInc):
                 with higher.innerloop_ctx(
                     self.framework.model, self.framework.opt, copy_initial_weights=False, track_higher_grads=not self.first_order,
                 ) as (fmodel, diffopt):
-                    with torch.backends.cudnn.flags(enabled=self.first_order or not self.is_rnn):
+                    with torch.backends.cudnn.flags(enabled=self.first_order or not self.has_rnn):
                         y_hat = self.framework(X, model=fmodel)
                         diffopt.step(self.framework.criterion(y_hat, y))
 
@@ -395,7 +393,7 @@ class CMAML(MetaModelInc):
             with higher.innerloop_ctx(
                 self.framework.model, self.framework.opt, copy_initial_weights=False, track_higher_grads=False,
             ) as (fmodel, diffopt):
-                with torch.backends.cudnn.flags(enabled=self.first_order or not self.is_rnn):
+                with torch.backends.cudnn.flags(enabled=self.first_order or not self.has_rnn):
                     y_hat = self.framework(X, model=fmodel)
             y = meta_input["y_train"].to(self.framework.device)
             loss2 = self.framework.criterion(y_hat, y)
@@ -460,7 +458,7 @@ class CMAML(MetaModelInc):
         with higher.innerloop_ctx(
             self.framework.model, self.framework.opt, copy_initial_weights=False, track_higher_grads=not self.first_order,
         ) as (fmodel, diffopt):
-            with torch.backends.cudnn.flags(enabled=self.first_order or not self.is_rnn):
+            with torch.backends.cudnn.flags(enabled=self.first_order or not self.has_rnn):
                 diffopt.step(self.framework.criterion(self.framework(self.buffer_x, model=fmodel), self.buffer_y))
         self.fast_model = fmodel
         self.fast_opt = diffopt
@@ -498,7 +496,7 @@ class CMAML(MetaModelInc):
             output = pred[begin_point:].detach().cpu().numpy()
             return output
 
-        with torch.backends.cudnn.flags(enabled=self.first_order or not self.is_rnn):
+        with torch.backends.cudnn.flags(enabled=self.first_order or not self.has_rnn):
             pred = self.framework(X, model=self.fast_model)
             output = pred[begin_point:].detach().cpu().numpy()
             loss1 = self.framework.criterion(pred[:end_point], y)
@@ -508,7 +506,7 @@ class CMAML(MetaModelInc):
         with higher.innerloop_ctx(
             self.framework.model, self.framework.opt, copy_initial_weights=False, track_higher_grads=not self.first_order,
         ) as (fmodel, diffopt):
-            with torch.backends.cudnn.flags(enabled=self.first_order or not self.is_rnn):
+            with torch.backends.cudnn.flags(enabled=self.first_order or not self.has_rnn):
                 diffopt.step(self.framework.criterion(self.framework(X, model=fmodel), y))
 
         self.fast_model = fmodel
@@ -554,7 +552,7 @@ class CMAML(MetaModelInc):
             return output
 
         # with torch.no_grad():
-        with torch.backends.cudnn.flags(enabled=self.first_order or not self.is_rnn):
+        with torch.backends.cudnn.flags(enabled=self.first_order or not self.has_rnn):
             pred = self.framework(X, model=self.fast_model)
             output = pred[begin_point:].detach().cpu().numpy()
         loss1 = self.framework.criterion(pred[:end_point], y)
@@ -600,7 +598,7 @@ class CMAML(MetaModelInc):
         with higher.innerloop_ctx(
             self.framework.model, self.framework.opt, copy_initial_weights=False, track_higher_grads=not self.first_order,
         ) as (fmodel, diffopt):
-            with torch.backends.cudnn.flags(enabled=self.first_order or not self.is_rnn):
+            with torch.backends.cudnn.flags(enabled=self.first_order or not self.has_rnn):
                 diffopt.step(
                     self.framework.criterion(
                         self.framework(sample_x[: len(sample_x) // 2], model=fmodel), sample_y[: len(sample_x) // 2],

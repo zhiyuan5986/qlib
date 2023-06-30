@@ -9,6 +9,7 @@ from typing import Optional
 
 import sys
 import pandas as pd
+import numpy as np
 import fire
 
 DIRNAME = Path(__file__).absolute().resolve().parent
@@ -120,9 +121,9 @@ class Incremental:
         :param h_path:
             prefetched handler file path to load
         :param test_start:
-            the start date of test data
+            override the start date of test data
         :param test_end:
-            the end date of test data
+            override the end date of test data
         """
         self.reload_tag = reload_tag
         self.save = save
@@ -161,7 +162,6 @@ class Incremental:
         self.adapt_x = adapt_x
         self.adapt_y = adapt_y
         self.reg = reg
-        self.is_rnn = self.forecast_model in ["GRU", "LSTM", "ALSTM"]
         self.not_sequence = self.forecast_model in ["MLP", 'Linear'] and self.alpha == 158
         self.h_path = h_path
         self.basic_task = Benchmark(
@@ -314,11 +314,11 @@ class Incremental:
             model = None
 
         if self.naive:
-            mm = MetaModelInc(self.basic_task, is_rnn=self.is_rnn, x_dim=self.x_dim, lr_model=self.lr_model,
+            mm = MetaModelInc(self.basic_task, x_dim=self.x_dim, lr_model=self.lr_model,
                               first_order=self.first_order, alpha=self.alpha, pretrained_model=model,
                               begin_valid_epoch=self.begin_valid_epoch)
         else:
-            mm = DoubleAdaptManager(self.basic_task, is_rnn=self.is_rnn, x_dim=self.x_dim, lr_model=self.lr_model,
+            mm = DoubleAdaptManager(self.basic_task, x_dim=self.x_dim, lr_model=self.lr_model,
                                     first_order=self.first_order, alpha=self.alpha, pretrained_model=model,
                                     begin_valid_epoch=self.begin_valid_epoch, factor_num=self.factor_num,
                                     lr_da=self.lr, lr_ma=self.lr_model,
