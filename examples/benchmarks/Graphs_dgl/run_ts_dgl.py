@@ -1,3 +1,11 @@
+
+import sys
+from pathlib import Path
+DIRNAME = Path(__file__).absolute().resolve().parent
+
+sys.path.append(str(DIRNAME))
+sys.path.append(str(DIRNAME.parent.parent.parent))
+
 import pickle
 import argparse
 import numpy as np
@@ -83,7 +91,7 @@ def make_config(args):
         instrument = "nasdaq100"
 
     with open(
-            '/home/jiale/.qlib/qlib_data/handler_mix_csi300_rankTrue_alpha360_horizon1.pkl',
+            '/data/zhaolifan/project/qlib/examples/benchmarks_dynamic/baseline/handler_mix_csi300_rankTrue_alpha360_horizon1.pkl',
             'rb') as f:
         handler = pickle.load(f)
 
@@ -207,9 +215,9 @@ def make_port_config(model, dataset, benchmark):
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Explanation evalaation.")
-    parser.add_argument("--data_root", type=str, default="/home/jiale/.qlib/qlib_data/", help="data root path")
-    parser.add_argument("--ckpt_root", type=str, default="/home/jiale/qlib_exp/tmp_ckpt/", help="ckpt root path")
-    parser.add_argument("--result_root", type=str, default="/home/jiale/qlib_exp/results/",
+    parser.add_argument("--data_root", type=str, default="/home/zhangzexi/.qlib/qlib_data/", help="data root path")
+    parser.add_argument("--ckpt_root", type=str, default="/home/dengjiale/qlib_exp/tmp_ckpt/", help="ckpt root path")
+    parser.add_argument("--result_root", type=str, default="/home/dengjiale/qlib_exp/results/",
                         help="explanation resluts root path")
     parser.add_argument("--market", type=str, default="A_share",
                         choices=["A_share", "NASDAQ", "NYSE"], help="market name")
@@ -268,40 +276,45 @@ if __name__ == "__main__":
         else:
             model.fit(dataset, save_path=model_path)
 
-        # save_path = 'C:/Users/92553/tmp/tmpo820nos2'
-        # model.load_checkpoint(save_path=save_path)
+            # save_path = 'C:/Users/92553/tmp/tmpo820nos2'
+            # model.load_checkpoint(save_path=save_path)
 
-        # R.save_objects(**{f"{args.market}-{args.graph_model}-{args.graph_type}.pkl": model})
+            # R.save_objects(**{f"{args.market}-{args.graph_model}-{args.graph_type}.pkl": model})
 
-        # prediction
-        recorder = R.get_recorder()
-        sr = SignalRecord(model, dataset, recorder)
-        sr.generate()
+            # prediction
+            recorder = R.get_recorder()
+            sr = SignalRecord(model, dataset, recorder)
+            sr.generate()
 
-        # Signal Analysis
-        sar = SigAnaRecord(recorder)
-        sar.generate()
+            # Signal Analysis
+            sar = SigAnaRecord(recorder)
+            sar.generate()
 
-        # backtest. If users want to use backtest based on their own prediction,
-        # please refer to https://qlib.readthedocs.io/en/latest/component/recorder.html#record-template.
-        par = PortAnaRecord(recorder, port_analysis_config, "day")
-        par.generate()
+            # backtest. If users want to use backtest based on their own prediction,
+            # please refer to https://qlib.readthedocs.io/en/latest/component/recorder.html#record-template.
+            par = PortAnaRecord(recorder, port_analysis_config, "day")
+            par.generate()
 
 
         def eval_explanation(explainer, explainer_name, step_size):
             print(f'=========={explainer_name}==========')
+            if explainer_name == 'effect':
+                ename = 'att'
+            else:
+                ename = explainer_name
             subgraphx_path = os.path.join(args.result_root,
-                                          f"{args.market}-{args.graph_model}-{args.graph_type}-{explainer_name}-explanation")
+                                          f"{args.market}-{args.graph_model}-{args.graph_type}-{ename}-explanation")
             if os.path.exists(subgraphx_path):
                 with open(subgraphx_path, 'rb') as f:
                     attn_exp = pickle.load(f)
-                for i, k in enumerate(sparsity[args.graph_model][explainer_name]):
-                    print(f'==================sparsity: {i + 2}====================')
+                for i, k in enumerate(sparsity[args.graph_model][explainer_name][1:]):
+                    print(f'==================sparsity: {i + 3}====================')
                     explanation, scores = model.get_explanation(dataset, explainer,
                                                                 cached_explanations=attn_exp['explanation'],
                                                                 step_size=step_size,
                                                                 top_k=k)
             else:
+                print(subgraphx_path, 'does not exist!')
                 explanation, scores = model.get_explanation(dataset, explainer)
                 config['log']['explainer'] = explainer_name
                 config['log']['explanation'] = explanation

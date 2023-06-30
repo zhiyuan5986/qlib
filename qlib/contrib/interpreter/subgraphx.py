@@ -20,21 +20,20 @@ class MCTSNode:
         self.children = []
 
     def __repr__(self):
-
         return str(self.nodes)
 
 
 class SubgraphX(nn.Module):
     def __init__(
-        self,
-        num_hops,
-        coef=10.0,
-        high2low=True,
-        num_child=12,
-        num_rollouts=10,
-        node_min=4,
-        shapley_steps=50,
-        log=False,
+            self,
+            num_hops,
+            coef=10.0,
+            high2low=True,
+            num_child=12,
+            num_rollouts=3,
+            node_min=4,
+            shapley_steps=10,
+            log=False,
     ):
         super().__init__()
         self.num_hops = num_hops
@@ -47,7 +46,7 @@ class SubgraphX(nn.Module):
         self.log = log
 
         self.model = None
-    
+
     def set_model(self, model):
         self.model = model
 
@@ -150,10 +149,10 @@ class SubgraphX(nn.Module):
         chosen_child = max(
             children_nodes,
             key=lambda c: c.total_reward / max(c.num_visit, 1)
-            + self.coef
-            * c.immediate_reward
-            * children_visit_sum_sqrt
-            / (1 + c.num_visit),
+                          + self.coef
+                          * c.immediate_reward
+                          * children_visit_sum_sqrt
+                          / (1 + c.num_visit),
         )
         reward = self.mcts_rollout(chosen_child)
         chosen_child.num_visit += 1
@@ -162,7 +161,7 @@ class SubgraphX(nn.Module):
         return reward
 
     def explain_graph(self, graph, **kwargs):
-        
+
         self.model.eval()
         min_nodes = self.node_min if graph.num_nodes() > self.node_min else graph.num_nodes()
 
@@ -184,30 +183,32 @@ class SubgraphX(nn.Module):
                 )
             self.mcts_rollout(root)
 
-        best_leaf = None
-        best_immediate_reward = float("-inf")
-        for mcts_node in self.mcts_node_maps.values():
-            if len(mcts_node.nodes) > min_nodes:
-                continue
+        return self.mcts_node_maps
 
-            if mcts_node.immediate_reward > best_immediate_reward:
-                best_leaf = mcts_node
-                best_immediate_reward = best_leaf.immediate_reward
+        # best_leaf = None
+        # best_immediate_reward = float("-inf")
+        # for mcts_node in self.mcts_node_maps.values():
+        #     if len(mcts_node.nodes) > min_nodes:
+        #         continue
 
-        return best_leaf.nodes, best_immediate_reward
+        #     if mcts_node.immediate_reward > best_immediate_reward:
+        #         best_leaf = mcts_node
+        #         best_immediate_reward = best_leaf.immediate_reward
+
+        # return best_leaf.nodes, best_immediate_reward
 
 
 class HeteroSubgraphX(nn.Module):
     def __init__(
-        self,
-        num_hops,
-        coef=10.0,
-        high2low=True,
-        num_child=12,
-        num_rollouts=10,
-        node_min=4,
-        shapley_steps=50,
-        log=False,
+            self,
+            num_hops,
+            coef=10.0,
+            high2low=True,
+            num_child=12,
+            num_rollouts=3,
+            node_min=4,
+            shapley_steps=10,
+            log=False,
     ):
         super().__init__()
         self.num_hops = num_hops
@@ -234,8 +235,8 @@ class HeteroSubgraphX(nn.Module):
             for c_etype in self.graph.canonical_etypes:
                 src_ntype, _, dst_ntype = c_etype
                 if (
-                    src_ntype not in local_regions
-                    or dst_ntype not in local_regions
+                        src_ntype not in local_regions
+                        or dst_ntype not in local_regions
                 ):
                     continue
 
@@ -257,7 +258,7 @@ class HeteroSubgraphX(nn.Module):
             ntype: list(
                 set(local_regions[ntype]) - set(subgraph_nodes[ntype].tolist())
             )
-            + [split_point]
+                   + [split_point]
             for ntype in subgraph_nodes.keys()
         }
 
@@ -287,7 +288,7 @@ class HeteroSubgraphX(nn.Module):
                 exclude_mask[ntype][subgn] = 1.0
 
             exclude_feat = self.feat * exclude_mask[self.target_ntype].unsqueeze(1).to(self.feat.device)
-            
+
             include_feat = self.feat * include_mask[self.target_ntype].unsqueeze(1).to(self.feat.device)
 
             with torch.no_grad():
@@ -297,7 +298,7 @@ class HeteroSubgraphX(nn.Module):
                     exclude_value = self.model.predict_on_graph(g)
                     g.ndata['nfeat'] = include_feat
                     include_value = self.model.predict_on_graph(g)
-                
+
             marginal_contributions.append(include_value - exclude_value)
 
         return torch.cat(marginal_contributions).mean().item()
@@ -425,8 +426,8 @@ class HeteroSubgraphX(nn.Module):
             Reward for visiting the node this time
         """
         if (
-            sum(len(nodes) for nodes in mcts_node.nodes.values())
-            <= self.node_min
+                sum(len(nodes) for nodes in mcts_node.nodes.values())
+                <= self.node_min
         ):
             return mcts_node.immediate_reward
 
@@ -436,10 +437,10 @@ class HeteroSubgraphX(nn.Module):
         chosen_child = max(
             children_nodes,
             key=lambda c: c.total_reward / max(c.num_visit, 1)
-            + self.coef
-            * c.immediate_reward
-            * children_visit_sum_sqrt
-            / (1 + c.num_visit),
+                          + self.coef
+                          * c.immediate_reward
+                          * children_visit_sum_sqrt
+                          / (1 + c.num_visit),
         )
         reward = self.mcts_rollout(chosen_child)
         chosen_child.num_visit += 1
@@ -474,35 +475,37 @@ class HeteroSubgraphX(nn.Module):
                 )
             self.mcts_rollout(root)
 
-        best_leaf = None
-        best_immediate_reward = float("-inf")
-        for mcts_node in self.mcts_node_maps.values():
-            if len(mcts_node.nodes[self.target_ntype]) > min_nodes:
-                continue
+        return self.mcts_node_maps
+        # best_leaf = None
+        # best_immediate_reward = float("-inf")
+        # for mcts_node in self.mcts_node_maps.values():
+        #     if len(mcts_node.nodes[self.target_ntype]) > min_nodes:
+        #         continue
 
-            if mcts_node.immediate_reward > best_immediate_reward:
-                best_leaf = mcts_node
-                best_immediate_reward = best_leaf.immediate_reward
+        #     if mcts_node.immediate_reward > best_immediate_reward:
+        #         best_leaf = mcts_node
+        #         best_immediate_reward = best_leaf.immediate_reward
 
-        return best_leaf.nodes, best_immediate_reward
+        # return best_leaf.nodes, best_immediate_reward
 
 
 class SubgraphXExplainer(GraphExplainer):
     def __init__(self, graph_model, num_layers, device):
         super().__init__(graph_model, num_layers, device)
-        self.subgraphx = HeteroSubgraphX(num_hops=num_layers) if graph_model == 'heterograph' else SubgraphX(num_hops=num_layers)
+        self.subgraphx = HeteroSubgraphX(num_hops=num_layers) if graph_model == 'heterograph' else SubgraphX(
+            num_hops=num_layers)
         self.target_ntype = 's'
         if graph_model == 'heterograph':
             self.subgraphx.target_ntype = self.target_ntype
         self.sampler = dgl.dataloading.MultiLayerFullNeighborSampler(self.num_layers)
-    
+
     def explain(self, full_model, graph, stkid):
         self.subgraphx.set_model(full_model)
         target_ntype = self.target_ntype
         dataloader = dgl.dataloading.DataLoader(graph,
-                                                        torch.Tensor([stkid]).type(torch.int64).to(self.device),
-                                                        self.sampler,
-                                                        batch_size=1, shuffle=False, drop_last=False)
+                                                torch.Tensor([stkid]).type(torch.int64).to(self.device),
+                                                self.sampler,
+                                                batch_size=1, shuffle=False, drop_last=False)
 
         neighbors = None
         for neighbors, _, _ in dataloader:
@@ -510,23 +513,49 @@ class SubgraphXExplainer(GraphExplainer):
 
         target_id = stkid
         g_c = dgl.node_subgraph(graph, neighbors)  # induce the computation graph
-        g_nodes_explain, reward = self.subgraphx.explain_graph(g_c)
-        if self.graph_model == 'heterograph':
-            g_nodes_explain_ne = g_c.ndata['_ID'][g_nodes_explain[target_ntype]]
-        else:
-            g_nodes_explain_ne = g_c.ndata['_ID'][g_nodes_explain]
-        explanation = {'subgraph nodes': g_nodes_explain_ne.detach().cpu().numpy().tolist(), 'reward': reward}
-        return explanation
+        mcts_node_maps = self.subgraphx.explain_graph(g_c)
 
-    def explanation_to_graph(self, explanation, subgraph, stkid, maskout=False):
+        g_nodes_explain = []
+        for mcts_node in mcts_node_maps.values():
+            if self.graph_model == 'heterograph':
+                g_nodes_explain.append([g_c.ndata['_ID'][mcts_node.nodes[target_ntype]].detach().cpu().numpy().tolist(),
+                                        mcts_node.immediate_reward])
+            else:
+                g_nodes_explain.append([g_c.ndata['_ID'][mcts_node.nodes].detach().cpu().numpy().tolist(),
+                                        mcts_node.immediate_reward])
+
+        # if self.graph_model == 'heterograph':
+        #     g_nodes_explain_ne = g_c.ndata['_ID'][g_nodes_explain[target_ntype]]
+        # else:
+        #     g_nodes_explain_ne = g_c.ndata['_ID'][g_nodes_explain]
+        # explanation = {'subgraph nodes': g_nodes_explain_ne.detach().cpu().numpy().tolist(), 'reward': reward}
+        return g_nodes_explain
+
+    def explanation_to_graph(self, explanation, subgraph, stkid, top_k=5, maskout=False):
+        best_immediate_reward = float("-inf")
+        best_exp = None
+        min_len = float("inf")
+        for exp in explanation:
+            if len(exp[0]) < min_len:
+                min_len = len(exp[0])
+        if min_len > top_k:
+            top_k = min_len
+        for exp in explanation:
+            if len(exp[0]) > top_k:
+                continue
+            if exp[1] > best_immediate_reward:
+                best_immediate_reward = exp[1]
+                best_exp = exp[0]
+
         if not maskout:
-            g_m_nodes = explanation['subgraph nodes']
+            g_m_nodes = best_exp
         else:
             if self.graph_model == 'heterograph':
                 g_nodes = subgraph.nodes(ntype=self.target_ntype).detach().cpu().numpy().tolist()
             else:
                 g_nodes = subgraph.nodes().detach().cpu().numpy().tolist()
-            g_m_nodes = list(set(g_nodes) - set(explanation['subgraph nodes']))
+            g_m_nodes = list(set(g_nodes) - set(best_exp))
+
         if not stkid in g_m_nodes:
             g_m_nodes.append(stkid)
         g_m = dgl.node_subgraph(subgraph, g_m_nodes)
