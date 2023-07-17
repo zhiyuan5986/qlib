@@ -8,6 +8,11 @@
 [![Join the chat at https://gitter.im/Microsoft/qlib](https://badges.gitter.im/Microsoft/qlib.svg)](https://gitter.im/Microsoft/qlib?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 
 ## :newspaper: **What's NEW!** &nbsp;   :sparkling_heart: 
+Released features in our forked repo
+| Feature | Status |
+| --                      | ------    |
+| [Incremental Learning & DoubleAdapt](examples/benchmarks_dynamic/incremental) | :chart_with_upwards_trend:  :hammer: Released on Feb 14 , 2023 |
+
 Recent released features
 | Feature | Status |
 | --                      | ------    |
@@ -392,6 +397,8 @@ So adapting the forecasting models/strategies to market dynamics is very importa
 Here is a list of solutions built on `Qlib`.
 - [Rolling Retraining](examples/benchmarks_dynamic/baseline/)
 - [DDG-DA on pytorch (Wendi, et al. AAAI 2022)](examples/benchmarks_dynamic/DDG-DA/)
+- [Incremental Learning](examples/benchmarks_dynamic/incremental/)
+- [DoubleAdapt (Zhao, et al. KDD 2023)](examples/benchmarks_dynamic/incremental/)
 
 ##  Reinforcement Learning: modeling continuous decisions
 Qlib now supports reinforcement learning, a feature designed to model continuous investment decisions. This functionality assists investors in optimizing their trading strategies by learning from interactions with the environment to maximize some notion of cumulative reward.
