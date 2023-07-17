@@ -4,6 +4,8 @@ This is the official implementation of `DoubleAdapt`, an incremental learning fr
 
 The paper has been accepted by KDD 2023. [[arXiv](https://arxiv.org/abs/2306.09862)]
 
+To get rid of dependencies on qlib, please refer to our [API](https://github.com/SJTU-Quant/DoubleAdapt) repo.
+
 ## Dataset
 Following DDG-DA, we run experiments on the crowd source version of qlib data which can be downloaded by
 ```bash
