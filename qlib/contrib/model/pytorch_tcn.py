@@ -176,7 +176,6 @@ class TCN(Model):
         raise ValueError("unknown metric `%s`" % self.metric)
 
     def train_epoch(self, x_train, y_train, w_train):
-
         x_train_values = x_train.values
         y_train_values = np.squeeze(y_train.values)
 
@@ -186,7 +185,6 @@ class TCN(Model):
         np.random.shuffle(indices)
 
         for i in range(len(indices))[:: self.batch_size]:
-
             if len(indices) - i < self.batch_size:
                 break
 
@@ -219,7 +217,6 @@ class TCN(Model):
         indices = np.arange(len(x_values))
 
         for i in range(len(indices))[:: self.batch_size]:
-
             if len(indices) - i < self.batch_size:
                 break
 
@@ -248,7 +245,6 @@ class TCN(Model):
         save_path=None,
         reweighter=None,
     ):
-
         df_train, df_valid, df_test = dataset.prepare(
             ["train", "valid", "test"],
             col_set=["feature", "label"],
@@ -324,7 +320,6 @@ class TCN(Model):
         preds = []
 
         for begin in range(sample_num)[:: self.batch_size]:
-
             if sample_num - begin < self.batch_size:
                 end = sample_num
             else:
