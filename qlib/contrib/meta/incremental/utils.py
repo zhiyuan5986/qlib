@@ -71,18 +71,17 @@ def override_state(groups, new_opt):
 
 
 def _mask_mlp158(meta_input):
-    X_test = meta_input["X_test"]
+    # X_test = meta_input["X_test"]
     y_test = meta_input["y_test"]
-    mask_x = torch.isnan(X_test).sum(-1) == 0
-    meta_input["X_test"] = X_test[mask_x]
-
-    y_test = y_test[mask_x]
+    # mask_x = torch.isnan(X_test).sum(-1) == 0
+    # meta_input["X_test"] = X_test[mask_x]
+    # y_test = y_test[mask_x]
 
     mask_y = ~torch.isnan(y_test)
     meta_input["mask_y"] = mask_y
-    meta_input["y_test"] = y_test[mask_y]
-    test_idx = meta_input["test_idx"]
-    meta_input["test_idx"] = test_idx[np.arange(len(test_idx))[mask_x][mask_y]]
+    # meta_input["y_test"] = y_test[mask_y]
+    # test_idx = meta_input["test_idx"]
+    # meta_input["test_idx"] = test_idx[np.arange(len(test_idx))[mask_x][mask_y]]
     return meta_input
 
 

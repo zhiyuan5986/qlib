@@ -1,9 +1,10 @@
 import copy
-from collections import defaultdict
+from collections import defaultdict, OrderedDict
+import typing
+from typing import Dict, List, Union, Optional, Tuple
 
 import numpy as np
 from qlib.model.meta import MetaTaskDataset
-
 from qlib.model.meta.model import MetaTaskModel
 
 from tqdm import tqdm
@@ -32,6 +33,7 @@ class MetaModelInc(MetaTaskModel):
         begin_valid_epoch=0,
         **kwargs
     ):
+        self.fitted = False
         self.task_config = task_config
         self.lr_model = lr_model
         self.first_order = first_order
@@ -47,6 +49,33 @@ class MetaModelInc(MetaTaskModel):
     def _init_meta_optimizer(self, **kwargs):
         return self.framework.opt
 
+    def state_dict(self, destination: typing.OrderedDict[str, torch.Tensor]=None, prefix='', keep_vars=False):
+        r"""Returns a dictionary containing a whole state of the module and the state of the optimizer.
+
+        Returns:
+            dict:
+                a dictionary containing a whole state of the module and the state of the optimizer.
+        """
+        if destination is None:
+            destination = OrderedDict()
+            destination._metadata = OrderedDict()
+        destination['framework'] = self.framework.state_dict()
+        destination['framework_opt'] = self.framework.opt.state_dict()
+        destination['opt'] = self.opt.state_dict()
+        return destination
+
+    def load_state_dict(self, state_dict: typing.OrderedDict[str, torch.Tensor],):
+        r"""Copies parameters and buffers from :attr:`state_dict` into
+        this module and the optimizer.
+
+        Args:
+            dict:
+                a dict containing parameters and persistent buffers.
+        """
+        self.framework.load_state_dict(state_dict['framework'])
+        self.framework.opt.load_state_dict(state_dict['framework_opt'])
+        self.opt.load_state_dict(state_dict['opt'])
+
     def fit(self, meta_dataset: MetaDatasetInc):
 
         phases = ["train", "test"]
@@ -59,7 +88,7 @@ class MetaModelInc(MetaTaskModel):
         best_ic, over_patience = -1e3, 8
         patience = over_patience
         best_checkpoint = copy.deepcopy(self.framework.state_dict())
-        for epoch in tqdm(range(300), desc="epoch"):
+        for epoch in tqdm(range(100), desc="epoch"):
             for phase, task_list in zip(phases, meta_tasks_l):
                 if phase == "test":
                     if epoch < self.begin_valid_epoch:
@@ -83,9 +112,7 @@ class MetaModelInc(MetaTaskModel):
         pred_y_all, mse_all = [], 0
         indices = np.arange(len(task_list))
         if phase == "test":
-            checkpoint = copy.deepcopy(self.framework.state_dict())
-            checkpoint_opt = copy.deepcopy(self.framework.opt.state_dict())
-            checkpoint_opt_meta = copy.deepcopy(self.opt.state_dict())
+            checkpoint = copy.deepcopy(self.state_dict())
         elif phase == "train":
             np.random.shuffle(indices)
         self.phase = phase
@@ -109,9 +136,7 @@ class MetaModelInc(MetaTaskModel):
                     )
                 )
         if phase == "test":
-            self.framework.load_state_dict(checkpoint)
-            self.framework.opt.load_state_dict(checkpoint_opt)
-            self.opt.load_state_dict(checkpoint_opt_meta)
+            self.load_state_dict(checkpoint)
         if phase != "train":
             pred_y_all = pd.concat(pred_y_all)
         if phase == "test":
@@ -123,13 +148,13 @@ class MetaModelInc(MetaTaskModel):
     def run_task(self, meta_input, phase):
         """ Naive incremental learning """
         self.framework.opt.zero_grad()
-        y_hat = self.framework(meta_input["X_train"].to(self.framework.device), None, transform=False)
+        y_hat = self.framework(meta_input["X_train"].to(self.framework.device), None)
         loss = self.framework.criterion(y_hat, meta_input["y_train"].to(self.framework.device))
         loss.backward()
         self.framework.opt.step()
         self.framework.opt.zero_grad()
         with torch.no_grad():
-            pred = self.framework(meta_input["X_test"].to(self.framework.device), None, transform=False)
+            pred = self.framework(meta_input["X_test"].to(self.framework.device), None)
         return pred.detach().cpu().numpy()
 
     def inference(self, meta_dataset: MetaTaskDataset):
@@ -160,6 +185,7 @@ class DoubleAdaptManager(MetaModelInc):
     ):
         super(DoubleAdaptManager, self).__init__(task_config, x_dim=x_dim, lr_model=lr_model,
                                                  first_order=first_order, alpha=alpha,
+                                                 factor_num=factor_num, temperature=temperature, num_head=num_head,
                                                  pretrained_model=pretrained_model,
                                                  begin_valid_epoch=begin_valid_epoch)
         self.lr_da = lr_da
@@ -169,7 +195,6 @@ class DoubleAdaptManager(MetaModelInc):
         self.reg = reg
         self.sigma = 1 ** 2 * 2
         self.factor_num = factor_num
-        self.lamda = 0.5
         self.num_head = num_head
         self.temperature = temperature
         self.begin_valid_epoch = begin_valid_epoch
@@ -217,20 +242,21 @@ class DoubleAdaptManager(MetaModelInc):
             X_test = meta_input["X_test"].to(self.framework.device)
             y_test = meta_input["y_test"].to(self.framework.device)
         pred, X_test_adapted = self.framework(X_test, model=fmodel, transform=self.adapt_x)
-        mask_y = meta_input.get("mask_y")
         if self.adapt_y:
             pred = self.framework.teacher_y(X_test, pred, inverse=True)
+        mask_y = None
         if phase != "train":
             test_begin = len(meta_input["y_extra"]) if "y_extra" in meta_input else 0
             meta_end = test_begin + meta_input["meta_end"]
             output = pred[test_begin:].detach().cpu().numpy()
             X_test = X_test[:meta_end]
             X_test_adapted = X_test_adapted[:meta_end]
+            mask_y = meta_input.get("mask_y")
             if mask_y is not None:
                 pred = pred[mask_y]
-                meta_end = sum(mask_y[:meta_end])
-            pred = pred[:meta_end]
-            y_test = y_test[:meta_end]
+                y_test = y_test[mask_y]
+            pred = pred[:sum(mask_y[:meta_end])]
+            y_test = y_test[:sum(mask_y[:meta_end])]
         else:
             output = pred.detach().cpu().numpy()
 
@@ -245,6 +271,8 @@ class DoubleAdaptManager(MetaModelInc):
                 with torch.no_grad():
                     pred2, _ = self.framework(X_test_adapted, model=None, transform=False, )
                     pred2 = self.framework.teacher_y(X_test, pred2, inverse=True).detach()
+                    if mask_y is not None:
+                        pred2 = pred2[mask_y[:meta_end]]
                     loss_old = self.framework.criterion(pred2.view_as(y_test), y_test)
                 loss_y = (loss_old.item() - loss.item()) / self.sigma * loss_y + loss_y * self.reg
             else:

@@ -9,7 +9,7 @@ from .dataset import MetaTaskDataset
 
 class MetaModel(metaclass=abc.ABCMeta):
     """
-    The meta-model guiding the model learning.
+    The src-model guiding the model learning.
 
     The word `Guiding` can be categorized into two types based on the stage of model learning
     - The definition of learning tasks:  Please refer to docs of `MetaTaskModel`
@@ -19,13 +19,13 @@ class MetaModel(metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def fit(self, *args, **kwargs):
         """
-        The training process of the meta-model.
+        The training process of the src-model.
         """
 
     @abc.abstractmethod
     def inference(self, *args, **kwargs) -> object:
         """
-        The inference process of the meta-model.
+        The inference process of the src-model.
 
         Returns
         -------
@@ -36,13 +36,13 @@ class MetaModel(metaclass=abc.ABCMeta):
 
 class MetaTaskModel(MetaModel):
     """
-    This type of meta-model deals with base task definitions. The meta-model creates tasks for training new base forecasting models after it is trained. `prepare_tasks` directly modifies the task definitions.
+    This type of src-model deals with base task definitions. The src-model creates tasks for training new base forecasting models after it is trained. `prepare_tasks` directly modifies the task definitions.
     """
 
     def fit(self, meta_dataset: MetaTaskDataset):
         """
         The MetaTaskModel is expected to get prepared MetaTask from meta_dataset.
-        And then it will learn knowledge from the meta tasks
+        And then it will learn knowledge from the src tasks
         """
         raise NotImplementedError(f"Please implement the `fit` method")
 
@@ -63,7 +63,7 @@ class MetaTaskModel(MetaModel):
 
 class MetaGuideModel(MetaModel):
     """
-    This type of meta-model aims to guide the training process of the base model. The meta-model interacts with the base forecasting models during their training process.
+    This type of src-model aims to guide the training process of the base model. The src-model interacts with the base forecasting models during their training process.
     """
 
     @abc.abstractmethod

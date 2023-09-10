@@ -238,8 +238,7 @@ class Benchmark:
                 pred = pred.to_frame("score")
             pred = pred.loc[test_begin:test_end]
 
-            ds = init_instance_by_config(task["dataset"], accept_types=Dataset)
-            raw_label = ds.prepare(segments="test", col_set="label", data_key=DataHandlerLP.DK_R)
+            raw_label = dataset.prepare(segments="test", col_set="label", data_key=DataHandlerLP.DK_R)
             if isinstance(raw_label, TSDataSampler):
                 raw_label = pd.DataFrame({"label": raw_label.data_arr[:-1][:, 0]}, index=raw_label.data_index)
                 # raw_label = raw_label.loc[test_begin:test_end]

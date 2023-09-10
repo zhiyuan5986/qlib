@@ -1,5 +1,6 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
+import pickle
 from pathlib import Path
 import sys
 
@@ -198,18 +199,21 @@ class Benchmark:
     def get_fitted_model(self, suffix=""):
         task = self.basic_task()
         try:
-            if not self.reload:
-                raise Exception
+            assert self.reload
             rec = list(R.list_recorders(experiment_name=self.exp_name + suffix).values())[0]
-            model = rec.load_object("params.pkl")
+            with open('mlruns/params.pkl', 'rb') as f:
+                model = pickle.Unpickler(f).load()
+            # model = rec.load_object("params.pkl")
             print(f"Load pretrained model from {self.exp_name + suffix}.")
-        except:
+        except Exception as e:
+            print(e)
             model = init_instance_by_config(task["model"])
             dataset = init_instance_by_config(task["dataset"])
             # start exp
             with R.start(experiment_name=self.exp_name + suffix):
                 model.fit(dataset)
                 R.save_objects(**{"params.pkl": model})
+            print(f"Save pretrained model to {self.exp_name + suffix}.")
         return model
 
     def run_all(self):
@@ -230,8 +234,7 @@ class Benchmark:
                 pred = pred.to_frame("score")
             pred = pred.loc[test_begin:test_end]
 
-            ds = init_instance_by_config(task["dataset"], accept_types=Dataset)
-            raw_label = ds.prepare(segments="test", col_set="label", data_key=DataHandlerLP.DK_R)
+            raw_label = dataset.prepare(segments="test", col_set="label", data_key=DataHandlerLP.DK_R)
             if isinstance(raw_label, TSDataSampler):
                 raw_label = pd.DataFrame({"label": raw_label.data_arr[:-1][:, 0]}, index=raw_label.data_index)
                 # raw_label = raw_label.loc[test_begin:test_end]

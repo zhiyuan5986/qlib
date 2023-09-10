@@ -70,60 +70,57 @@ class Incremental:
             test_end=None,
     ):
         """
-        :param data_dir: str
-            source data dictionary under root_path
-        :param root_path: str
-            the root path of source data. '~/.qlib/qlib_data/' by default.
-        :param market: str
-            'csi300' or 'csi500'
-        :param horizon: int
-            define the stock price trend
-        :param alpha: int
-            360 or 158
-        :param step: int
-            incremental task interval, i.e., timespan of incremental data or test data
-        :param rank_label: boolean
-            If True, use CSRankNorm for label preprocessing; Otherwise, use CSZscoreNorm
-        :param forecast_model: str
-            consistent with directory name under examples/benchmarks
-        :param lr: float
-            learning rate of data adapter
-        :param lr_model: float
-            learning rate of forecast model and model adapter
-        :param reg: float
-            regularization strength
-        :param num_head:
-            number of transformation heads
-        :param tau:
-            softmax temperature
-        :param first_order:
-            whether use first-order approximation version of MAML
-        :param adapt_x:
-            whether adapt features
-        :param adapt_y:
-            whether adapt labels
-        :param naive:
-            if True, degrade to naive incremental baseline
-        :param begin_valid_epoch:
-            accelerate offline training by leaving out some valid epochs
-        :param save:
-            whether to save the checkpoints
-        :param reload_tag (list):
-            if None, train from scratch; otherwise, reload checkpoints from the previous experiments
-        :param preprocess_tensor:
-            If False, transform each batch from `numpy.ndarray` to `torch.Tensor` (slow, not recommended)
-        :param use_extra:
-            If True, use extra segments for upper-level optimization (not recommended when step is large enough)
-        :param tag: str
-            distinguish experiment name
-        :param reload_tag:
-            experiment name to reload
-        :param h_path:
-            prefetched handler file path to load
-        :param test_start:
-            override the start date of test data
-        :param test_end:
-            override the end date of test data
+        Args:
+            data_dir (str):
+                source data dictionary under root_path
+            root_path (str):
+                the root path of source data. '~/.qlib/qlib_data/' by default.
+            market (str):
+                'csi300' or 'csi500'
+            horizon (int):
+                define the stock price trend
+            alpha (int):
+                360 or 158
+            step (int):
+                incremental task interval, i.e., timespan of incremental data or test data
+            forecast_model (str):
+                consistent with directory name under examples/benchmarks
+            lr (float):
+                learning rate of data adapter
+            lr_model (float):
+                learning rate of forecast model and model adapter
+            reg (float):
+                regularization strength
+            num_head (int):
+                number of transformation heads
+            tau (float):
+                softmax temperature
+            first_order (bool):
+                whether use first-order approximation version of MAML
+            adapt_x (bool):
+                whether adapt features
+            adapt_y (bool):
+                whether adapt labels
+            naive (bool):
+                if True, degrade to naive incremental baseline; if False, use DoubleAdapt
+            begin_valid_epoch (int):
+                accelerate offline training by leaving out some valid epochs
+            save (bool):
+                whether to save the checkpoints
+            reload_tag (list):
+                if None, train from scratch; otherwise, reload checkpoints from the previous experiments
+            preprocess_tensor (bool):
+                if False, temporally transform each batch from `numpy.ndarray` to `torch.Tensor` (slow, not recommended)
+            use_extra (bool):
+                if True, use extra segments for upper-level optimization (not recommended when step is large enough)
+            tag (str):
+                to distinguish experiment id
+            h_path (str):
+                prefetched handler file path to load
+            test_start (str):
+                override the start date of test data
+            test_end (str):
+                override the end date of test data
         """
         self.reload_tag = reload_tag
         self.save = save
@@ -291,27 +288,27 @@ class Incremental:
         torch.cuda.manual_seed(seed)
 
         # with R.start(experiment_name=self.meta_exp_name):
-        if self.naive:
-            batch_size = 5000
-            if self.market == "csi100":
-                batch_size = 2000
-            elif self.market == "csi500":
-                batch_size = 8000
-            bm = Benchmark(
-                data_dir=self.data_dir,
-                market=self.market,
-                model_type=self.forecast_model,
-                alpha=self.alpha,
-                rank_label=self.rank_label,
-                h_path=self.h_path,
-                task_ext_conf={'model': {'kwargs': {'batch_size': batch_size}}},
-                init_data=False,
-            )
-            R.set_uri("../../benchmarks/mlruns/")
-            model = bm.get_fitted_model(f"_{seed}")
-            R.set_uri("./mlruns/")
-        else:
-            model = None
+        model = None
+        # if self.naive:
+        #     batch_size = 5000
+        #     if self.market == "csi100":
+        #         batch_size = 2000
+        #     elif self.market == "csi500":
+        #         batch_size = 8000
+        #     bm = Benchmark(
+        #         data_dir=self.data_dir,
+        #         market=self.market,
+        #         model_type=self.forecast_model,
+        #         alpha=self.alpha,
+        #         rank_label=self.rank_label,
+        #         h_path=self.h_path,
+        #         task_ext_conf={'model': {'kwargs': {'batch_size': batch_size}}},
+        #         init_data=False,
+        #         reload=True
+        #     )
+        #     R.set_uri("../../benchmarks/mlruns/")
+        #     model = bm.get_fitted_model(f"_{seed}")
+        #     R.set_uri("./mlruns/")
 
         if self.naive:
             mm = MetaModelInc(self.basic_task, x_dim=self.x_dim, lr_model=self.lr_model,
@@ -324,7 +321,7 @@ class Incremental:
                                     lr_da=self.lr, lr_ma=self.lr_model,
                                     adapt_x=self.adapt_x, adapt_y=self.adapt_y, reg=self.reg,
                                     num_head=self.num_head, temperature=self.temperature)
-        if not self.naive:
+        if model is None:
             mm.fit(self.meta_dataset_offline)
             if self.save:
                 print(f'Save checkpoint in Exp: {self.meta_exp_name + "_checkpoint"}')
@@ -363,8 +360,9 @@ class Incremental:
             if isinstance(label_all, TSDataSampler):
                 label_all = pd.DataFrame({"label": label_all.data_arr[:-1][:, 0]}, index=label_all.data_index)
                 label_all = label_all.loc[test_begin:test_end]
-            label_all = label_all.dropna(axis=0)
             mlp158 = self.forecast_model == "MLP" and self.alpha == 158
+            if not mlp158:
+                label_all = label_all.dropna(axis=0)
             pred_y_all, losses = meta_model.inference(meta_tasks_test)
             # tasks = []
             # for loss, task in zip(losses, meta_tasks_test.meta_task_l):
