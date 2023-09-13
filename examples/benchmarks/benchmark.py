@@ -1,5 +1,6 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
+import os
 import pickle
 from pathlib import Path
 import sys
@@ -92,7 +93,7 @@ class Benchmark:
             filename = "lightgbm_alpha{}_handler_horizon{}.pkl".format(
                 self.alpha, self.horizon
             )
-        elif self.model_type == "linear":
+        elif self.model_type.lower() == "linear":
             conf_path = (
                 DIRNAME.parent
                 / "benchmarks"
@@ -113,6 +114,7 @@ class Benchmark:
                 self.alpha, self.horizon
             )
         else:
+            # NOTE: For Alpha158, all RNN models only use 20 features. Carefully take the pkl if your model use different features.
             conf_path = (
                 DIRNAME.parent
                 / "benchmarks"
@@ -201,7 +203,7 @@ class Benchmark:
         try:
             assert self.reload
             rec = list(R.list_recorders(experiment_name=self.exp_name + suffix).values())[0]
-            with open('mlruns/params.pkl', 'rb') as f:
+            with open(os.path.join(rec.artifact_uri[rec.artifact_uri.find('mlruns'):], 'params.pkl'), 'rb') as f:
                 model = pickle.Unpickler(f).load()
             # model = rec.load_object("params.pkl")
             print(f"Load pretrained model from {self.exp_name + suffix}.")
@@ -300,7 +302,7 @@ class Benchmark:
             ]
         }
         test_time = []
-        for i in range(0, 5):
+        for i in range(0, 5 if self.model_type.lower() != 'linear' else 1):
             np.random.seed(43 + i)
             torch.manual_seed(43 + i)
             torch.cuda.manual_seed(43 + i)
