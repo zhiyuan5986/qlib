@@ -6,15 +6,20 @@ The paper has been accepted by KDD 2023. [[arXiv](https://arxiv.org/abs/2306.098
 
 To get rid of dependencies on qlib, please refer to our [API](https://github.com/SJTU-Quant/DoubleAdapt) repo.
 
+## :newspaper: News
+Sep 15, 2023 :hammer: Support overriding learning rates during online training (meta-valid and meta-test). 
+It is highly [recommended](#remarks) to tune offline and online learning rates.  
+We also **CHANGED** our argparser: the arg `--lr` now means the learning rate of forecast model, while a new arg `--lr_da` means that of data adapter. 
+
 ## Dataset
-Following DDG-DA, we run experiments on the crowd source version of qlib data which can be downloaded by
+Following DDG-DA, we run experiments on the crowd-source version of qlib data which can be downloaded by
 ```bash
 wget https://github.com/chenditc/investment_data/releases/download/2023-06-01/qlib_bin.tar.gz
 tar -zxvf qlib_bin.tar.gz -C ~/.qlib/qlib_data/crowd_data --strip-components=2
 ```
-Argument `--data_dir crowd_data` and `--data_dir cn_data` for crowd-source data and Yahoo-source data, respectively.
+Arg `--data_dir crowd_data` and `--data_dir cn_data` for crowd-source data and Yahoo-source data, respectively.
 
-Argument `--alpha 360` or `--alpha 158` for Alpha360 and Alpha 158, respectively. 
+Arg `--alpha 360` or `--alpha 158` for Alpha360 and Alpha 158, respectively. 
 > We have not carefully checked the program on Alpha158, possibly leaving bugs unresolved. 
 > It is better to experiment on Alpha 360.
 >
@@ -24,7 +29,7 @@ Note that we are to predict the stock trend **BUT NOT** the rank of stock trend,
 
 To this end, we use `CSZScoreNorm` in the learn_processors instead of `CSRankNorm`.
 
-Pay attention to the argument `--rank_label False` (or `--rank_label True`) for the target label.
+Pay attention to the arg `--rank_label False` (or `--rank_label True`) for the target label.
 
 ## Requirements
 
@@ -45,7 +50,7 @@ Then, free the storage of training data before testing.
 Moveover, in our implementation, we cast all slices of stock data in `pandas.DataFrame` to `torch.Tensor` during data preprocessing.
 This trick largely reduce CPU occupation during training and testing while it results in duplicate storage.
 
-You can also set the argument `--preprocess_tensor False`, reducing RAM occupation to ~5GB (peak 8GB before training). 
+You can also set the arg `--preprocess_tensor False`, reducing RAM occupation to ~5GB (peak 8GB before training). 
 Then, the data slices are created as virtual views of `pandas.DataFrame`, and the duplicates share the same memory address. 
 Each batch will be casted as `torch.Tensor` when needed, requesting new memory of a tiny size.
 However, `--preprocess_tensor False` can exhaust all cores of CPU and the speed is lower consequently.
@@ -60,12 +65,19 @@ If your GPU is limited, try to set a smaller `step` (e.g., 5) which may takes up
 RR and DDG-DA bear unaffordable time cost (e.g., 3 days for 10 runs) in experiments with `step` set to 5.   
 
 ## Remarks <a id="remarks"></a>
+### Grid search on learning rates during offline and online training
+It is **necessary** to perform hyperparameter tuning for learning rates `lr_da`, `lr_ma` and `lr` (learning rate of the lower level). 
+Note that the learning rates during online training could be different from those during offline training.
+
+> Fill arg `--online_lr` to set different learning rates.
+> Example: `--online_lr "{'lr': 0.0005, 'lr_da': 0.0001, 'lr_ma': 0.0005}"`
+
 ### Carefully select `step` according to `horizon`
-Argument `--horizon` decides the target label to be `Ref($close, -horizon-1}) / Ref($close, -1) - 1` in the China A-share market. 
+Arg `--horizon` decides the target label to be `Ref($close, -horizon-1}) / Ref($close, -1) - 1` in the China A-share market. 
 Accordingly, there are always unknown ground-truth labels in the lasted `horizon` days of test data, and we can only use the rest for optimization of the meta-learners.
 With a large `horizon` or a small `step`, the performance on the majority of the test data cannot be optimized, 
 and the meta-learners may well be overfitted and shortsighted.
-We provide an argument `--use_extra True` to take the nearest data as additional test data, while the improvement is often little.
+We provide an arg `--use_extra True` to take the nearest data as additional test data, while the improvement is often little.
 
 It is recommended to let `step` be greater than `horizon` by at least 3 or 4, e.g., `--step 5 --horizon 1`.
 

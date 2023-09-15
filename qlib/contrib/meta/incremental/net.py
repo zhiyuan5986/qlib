@@ -2,6 +2,8 @@ import collections
 import math
 
 import torch
+
+import qlib
 from qlib.model import Model
 
 from qlib.utils import init_instance_by_config
@@ -61,6 +63,16 @@ class LabelAdapter(nn.Module):
         return (gate * self.heads(y, inverse=inverse)).sum(-1)
 
 
+class FiLM(nn.Module):
+    def __init__(self, in_dim):
+        super().__init__()
+        self.scale = nn.Parameter(torch.empty(in_dim))
+        nn.init.uniform_(self.scale, 0.75, 1.25)
+
+    def forward(self, x):
+        return x * self.scale
+
+
 class FeatureAdapter(nn.Module):
     def __init__(self, in_dim, num_head=4, temperature=4):
         super().__init__()
@@ -80,20 +92,26 @@ class FeatureAdapter(nn.Module):
 
 
 class ForecastModel(nn.Module):
-    def __init__(self, task_config, x_dim=None, lr=0.001, need_permute=False, model=None):
+    def __init__(self, task_config, x_dim=None, lr=0.001, weight_decay=0, need_permute=False, model=None):
         super().__init__()
         self.lr = lr
         # self.lr = task_config["model"]['kwargs']['lr']
         self.criterion = nn.MSELoss()
         if task_config["model"]["class"] == "LinearModel":
-            self.model = nn.Linear(x_dim, 1)
-            self.model.load_state_dict(
-                collections.OrderedDict(
-                    {"weight": torch.from_numpy(model.coef_).unsqueeze(0), "bias": torch.tensor([model.intercept_]),}
-                )
-            )
-            self.opt = torch.optim.SGD(self.model.parameters(), lr=self.lr)
-            self.device = None
+            if model is not None:
+                if isinstance(model, qlib.contrib.model.LinearModel):
+                    self.model = nn.Linear(x_dim, 1)
+                    self.model.load_state_dict(
+                        collections.OrderedDict(
+                            {"weight": torch.from_numpy(model.coef_).unsqueeze(0), "bias": torch.tensor([model.intercept_]),}
+                        )
+                    )
+                elif isinstance(model, nn.Linear):
+                    self.model = model
+            else:
+                self.model = nn.Linear(x_dim, 1, bias=False)
+            self.opt = torch.optim.Adam(self.model.parameters(), lr=self.lr, weight_decay=weight_decay)
+            self.device = torch.device("cuda")
         else:
             if model is None:
                 model = init_instance_by_config(task_config["model"], accept_types=Model)
@@ -110,7 +128,7 @@ class ForecastModel(nn.Module):
                 self.device = torch.device("cuda")
             self.need_permute = need_permute
         if self.opt is None:
-            self.opt = torch.optim.Adam(self.model.parameters(), lr=self.lr)
+            self.opt = torch.optim.Adam(self.model.parameters(), lr=self.lr, weight_decay=weight_decay)
         if self.device is not None:
             self.to(self.device)
 
@@ -126,10 +144,12 @@ class ForecastModel(nn.Module):
 
 class DoubleAdapt(ForecastModel):
     def __init__(
-        self, task_config, factor_num, x_dim=None, lr=0.001, need_permute=False, model=None, num_head=8, temperature=10,
+        self, task_config, factor_num, x_dim=None, lr=0.001, weight_decay=0,
+            need_permute=False, model=None, num_head=8, temperature=10,
     ):
         super().__init__(
-            task_config=task_config, x_dim=x_dim, lr=lr, need_permute=need_permute, model=model,
+            task_config=task_config, x_dim=x_dim, lr=lr, weight_decay=weight_decay,
+            need_permute=need_permute, model=model,
         )
         self.teacher_x = FeatureAdapter(factor_num, num_head, temperature)
         self.teacher_y = LabelAdapter(factor_num if x_dim is None else x_dim, num_head, temperature)

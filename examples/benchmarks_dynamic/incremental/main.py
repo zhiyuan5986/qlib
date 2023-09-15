@@ -50,9 +50,12 @@ class Incremental:
             step=20,
             rank_label=False,
             forecast_model="GRU",
-            lr=0.01,
-            lr_model=0.001,
+            lr=0.001,
+            lr_da=0.01,
+            lr_ma=None,
+            online_lr: dict = None,
             reg=0.5,
+            weight_decay=0,
             num_head=8,
             tau=10,
             first_order=True,
@@ -86,11 +89,17 @@ class Incremental:
             forecast_model (str):
                 consistent with directory name under examples/benchmarks
             lr (float):
+                learning rate of forecast model
+            lr_da (float):
                 learning rate of data adapter
-            lr_model (float):
-                learning rate of forecast model and model adapter
+            lr_ma (float):
+                learning rate of model adapter. If None, use lr.
+            online_lr (dict):
+                learning rates during meta-valid and meta-test. Example: --online lr "{'lr_da': 0, 'lr': 0.0001}".
             reg (float):
                 regularization strength
+            weight_decay (float):
+                L2 regularization of the (Adam) optimizer
             num_head (int):
                 number of transformation heads
             tau (float):
@@ -151,7 +160,11 @@ class Incremental:
         self.tag = tag
         self.rank_label = rank_label
         self.lr = lr
-        self.lr_model = lr_model
+        self.lr_da = lr_da
+        self.lr_ma = lr if lr_ma is None else lr_ma
+        if online_lr is not None and 'lr' in online_lr:
+            online_lr['lr_model'] = online_lr['lr']
+        self.online_lr = online_lr
         self.num_head = num_head
         self.temperature = tau
         self.first_order = first_order
@@ -159,6 +172,7 @@ class Incremental:
         self.adapt_x = adapt_x
         self.adapt_y = adapt_y
         self.reg = reg
+        self.weight_decay = weight_decay
         self.not_sequence = self.forecast_model in ["MLP", 'Linear'] and self.alpha == 158
         self.h_path = h_path
         self.basic_task = Benchmark(
@@ -168,7 +182,7 @@ class Incremental:
             horizon=self.horizon,
             alpha=self.alpha,
             rank_label=self.rank_label,
-            lr=lr_model,
+            lr=lr,
             early_stop=8,
             init_data=False,
             h_path=h_path,
@@ -302,7 +316,7 @@ class Incremental:
         #         alpha=self.alpha,
         #         rank_label=self.rank_label,
         #         h_path=self.h_path,
-        #         task_ext_conf={'model': {'kwargs': {'batch_size': batch_size}}},
+        #         task_ext_conf={'model': {'kwargs': {'batch_size': batch_size}}} if self.forecast_model != 'Linear' else None,
         #         init_data=False,
         #         reload=True
         #     )
@@ -311,14 +325,14 @@ class Incremental:
         #     R.set_uri("./mlruns/")
 
         if self.naive:
-            mm = MetaModelInc(self.basic_task, x_dim=self.x_dim, lr_model=self.lr_model,
-                              first_order=self.first_order, alpha=self.alpha, pretrained_model=model,
-                              begin_valid_epoch=self.begin_valid_epoch)
+            mm = MetaModelInc(self.basic_task, x_dim=self.x_dim, lr_model=self.lr, online_lr=self.online_lr,
+                              first_order=self.first_order, alpha=self.alpha, weight_decay=self.weight_decay,
+                              pretrained_model=model, begin_valid_epoch=self.begin_valid_epoch)
         else:
-            mm = DoubleAdaptManager(self.basic_task, x_dim=self.x_dim, lr_model=self.lr_model,
+            mm = DoubleAdaptManager(self.basic_task, x_dim=self.x_dim, lr_model=self.lr, weight_decay=self.weight_decay,
                                     first_order=self.first_order, alpha=self.alpha, pretrained_model=model,
                                     begin_valid_epoch=self.begin_valid_epoch, factor_num=self.factor_num,
-                                    lr_da=self.lr, lr_ma=self.lr_model,
+                                    lr_da=self.lr_da, lr_ma=self.lr_ma, online_lr=self.online_lr,
                                     adapt_x=self.adapt_x, adapt_y=self.adapt_y, reg=self.reg,
                                     num_head=self.num_head, temperature=self.temperature)
         if model is None:
@@ -364,6 +378,8 @@ class Incremental:
             if not mlp158:
                 label_all = label_all.dropna(axis=0)
             pred_y_all, losses = meta_model.inference(meta_tasks_test)
+            print('lr_model:', meta_model.lr_model, 'lr_ma:', meta_model.framework.opt.param_groups[0]['lr'],
+                  'lr_da:', meta_model.opt.param_groups[0]['lr'])
             # tasks = []
             # for loss, task in zip(losses, meta_tasks_test.meta_task_l):
             #     segments = task.task["dataset"]["kwargs"]["segments"]
@@ -445,9 +461,9 @@ class Incremental:
                 self.tag = self.reload_tag
                 rec = R.get_exp(experiment_name=self.meta_exp_name + '_checkpoint').list_recorders(rtype=Experiment.RT_L)[i]
                 mm: MetaModelInc = rec.load_object("framework")
-                mm.framework.lr_model = 0.001
-                mm.framework.opt.param_groups[0]['lr'] = self.lr_model
-                mm.opt.param_groups[0]['lr'] = self.lr
+                if self.online_lr is not None:
+                    mm.online_lr = self.online_lr
+                mm.framework.to(mm.framework.device)
                 print('Reload experiment', self.meta_exp_name + '_checkpoint')
             except Exception as e:
                 traceback.print_exc()

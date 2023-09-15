@@ -20,31 +20,36 @@ from .dataset import MetaDatasetInc
 from .net import DoubleAdapt, ForecastModel, CoG
 
 
-
 class MetaModelInc(MetaTaskModel):
     def __init__(
         self,
         task_config,
         lr_model=0.001,
+        online_lr: dict = None,
         first_order=True,
         x_dim=None,
         alpha=360,
         pretrained_model=None,
+        over_patience=20,
         begin_valid_epoch=0,
         **kwargs
     ):
         self.fitted = False
         self.task_config = task_config
         self.lr_model = lr_model
+        self.online_lr = online_lr
         self.first_order = first_order
+        self.over_patience = over_patience
         self.begin_valid_epoch = begin_valid_epoch
         self.framework = self._init_framework(task_config, x_dim, lr_model, need_permute=int(alpha) == 360,
                                               model=pretrained_model, **kwargs)
         self.opt = self._init_meta_optimizer(**kwargs)
         self.has_rnn = has_rnn(self.framework)
 
-    def _init_framework(self, task_config, x_dim=None, lr_model=0.001, need_permute=False, model=None, **kwargs):
-        return ForecastModel(task_config, x_dim=x_dim, lr=lr_model, need_permute=need_permute, model=model)
+    def _init_framework(self, task_config, x_dim=None, lr_model=0.001, weight_decay=0.0,
+                        need_permute=False, model=None, **kwargs):
+        return ForecastModel(task_config, x_dim=x_dim, lr=lr_model, weight_decay=weight_decay,
+                             need_permute=need_permute, model=model)
 
     def _init_meta_optimizer(self, **kwargs):
         return self.framework.opt
@@ -76,6 +81,12 @@ class MetaModelInc(MetaTaskModel):
         self.framework.opt.load_state_dict(state_dict['framework_opt'])
         self.opt.load_state_dict(state_dict['opt'])
 
+    def override_online_lr_(self):
+        if self.online_lr is not None:
+            if 'lr_model' in self.online_lr:
+                self.lr_model = self.online_lr['lr_model']
+                self.opt.param_groups[0]['lr'] = self.online_lr['lr_model']
+
     def fit(self, meta_dataset: MetaDatasetInc):
 
         phases = ["train", "test"]
@@ -85,8 +96,8 @@ class MetaModelInc(MetaTaskModel):
         self.framework.train()
         torch.set_grad_enabled(True)
         # run training
-        best_ic, over_patience = -1e3, 8
-        patience = over_patience
+        best_ic = -1e3
+        patience = self.over_patience
         best_checkpoint = copy.deepcopy(self.framework.state_dict())
         for epoch in tqdm(range(100), desc="epoch"):
             for phase, task_list in zip(phases, meta_tasks_l):
@@ -100,7 +111,7 @@ class MetaModelInc(MetaTaskModel):
                     else:
                         best_ic = ic
                         print("best ic:", best_ic)
-                        patience = over_patience
+                        patience = self.over_patience
                         best_checkpoint = copy.deepcopy(self.framework.state_dict())
             if patience <= 0:
                 # R.save_objects(**{"model.pkl": self.tn})
@@ -110,12 +121,17 @@ class MetaModelInc(MetaTaskModel):
 
     def run_epoch(self, phase, task_list, tqdm_show=False):
         pred_y_all, mse_all = [], 0
-        indices = np.arange(len(task_list))
-        if phase == "test":
-            checkpoint = copy.deepcopy(self.state_dict())
-        elif phase == "train":
-            np.random.shuffle(indices)
         self.phase = phase
+
+        indices = np.arange(len(task_list))
+        if phase == 'train':
+            np.random.shuffle(indices)
+        else:
+            if phase == "test":
+                checkpoint = copy.deepcopy(self.state_dict())
+            lr_model = self.lr_model
+            self.override_online_lr_()
+
         for i in tqdm(indices, desc=phase) if tqdm_show else indices:
             # torch.cuda.empty_cache()
             meta_input = task_list[i].get_meta_input()
@@ -135,11 +151,11 @@ class MetaModelInc(MetaTaskModel):
                         }
                     )
                 )
-        if phase == "test":
-            self.load_state_dict(checkpoint)
         if phase != "train":
             pred_y_all = pd.concat(pred_y_all)
         if phase == "test":
+            self.lr_model = lr_model
+            self.load_state_dict(checkpoint)
             ic = pred_y_all.groupby("datetime").apply(lambda df: df["pred"].corr(df["label"], method="pearson")).mean()
             print(ic)
             return pred_y_all, ic
@@ -171,6 +187,7 @@ class DoubleAdaptManager(MetaModelInc):
         lr_model=0.001,
         lr_da=0.01,
         lr_ma=0.001,
+        online_lr: dict = None,
         reg=0.5,
         adapt_x=True,
         adapt_y=True,
@@ -183,8 +200,8 @@ class DoubleAdaptManager(MetaModelInc):
         pretrained_model=None,
         begin_valid_epoch=0,
     ):
-        super(DoubleAdaptManager, self).__init__(task_config, x_dim=x_dim, lr_model=lr_model,
-                                                 first_order=first_order, alpha=alpha,
+        super(DoubleAdaptManager, self).__init__(task_config, x_dim=x_dim, lr_model=lr_model, lr_ma=lr_ma, lr_da=lr_da,
+                                                 online_lr=online_lr, first_order=first_order, alpha=alpha,
                                                  factor_num=factor_num, temperature=temperature, num_head=num_head,
                                                  pretrained_model=pretrained_model,
                                                  begin_valid_epoch=begin_valid_epoch)
@@ -200,16 +217,26 @@ class DoubleAdaptManager(MetaModelInc):
         self.begin_valid_epoch = begin_valid_epoch
 
     def _init_framework(self, task_config, x_dim=None, lr_model=0.001, need_permute=False, model=None,
-                        num_head=8, temperature=10, factor_num=6, **kwargs):
+                        num_head=8, temperature=10, factor_num=6, lr_ma=None, weight_decay=0, **kwargs):
         return DoubleAdapt(
-            task_config, x_dim=x_dim, lr=lr_model, need_permute=need_permute, model=model,
-            factor_num=factor_num, num_head=num_head, temperature=temperature,
+            task_config, x_dim=x_dim, lr=lr_model if lr_ma is None else lr_ma, need_permute=need_permute, model=model,
+            factor_num=factor_num, num_head=num_head, temperature=temperature, weight_decay=weight_decay
         )
 
     def _init_meta_optimizer(self, lr_da=0.01, **kwargs):
+        """ NOTE: the optimizer of the model adapter is self.framework.opt """
         return optim.Adam(self.framework.meta_params, lr=lr_da)    # To optimize the data adapter
         # return optim.Adam([{'params': self.tn.teacher_y.parameters(), 'lr': self.lr_y},
         #                    {'params': self.tn.teacher_x.parameters()}], lr=self.lr)
+
+    def override_online_lr_(self):
+        if self.online_lr is not None:
+            if 'lr_model' in self.online_lr:
+                self.lr_model = self.online_lr['lr_model']
+            if 'lr_ma' in self.online_lr:
+                self.framework.opt.param_groups[0]['lr'] = self.online_lr['lr_ma']
+            if 'lr_da' in self.online_lr:
+                self.opt.param_groups[0]['lr'] = self.online_lr['lr_da']
 
     def run_task(self, meta_input, phase):
 
@@ -251,12 +278,12 @@ class DoubleAdaptManager(MetaModelInc):
             output = pred[test_begin:].detach().cpu().numpy()
             X_test = X_test[:meta_end]
             X_test_adapted = X_test_adapted[:meta_end]
+            pred = pred[:meta_end]
+            y_test = y_test[:meta_end]
             mask_y = meta_input.get("mask_y")
             if mask_y is not None:
-                pred = pred[mask_y]
-                y_test = y_test[mask_y]
-            pred = pred[:sum(mask_y[:meta_end])]
-            y_test = y_test[:sum(mask_y[:meta_end])]
+                pred = pred[mask_y[:meta_end]]
+                y_test = y_test[mask_y[:meta_end]]
         else:
             output = pred.detach().cpu().numpy()
 
@@ -293,8 +320,8 @@ class MetaCoG(MetaModelInc):
     def _init_framework(self, task_config, x_dim=None, lr_model=0.001, need_permute=False, model=None, **kwargs):
         return CoG(task_config, x_dim=x_dim, lr=lr_model, need_permute=need_permute, model=model)
 
-    def _init_meta_optimizer(self, lr, **kwargs):
-        return optim.Adam(self.framework.meta_params, lr=lr)
+    def _init_meta_optimizer(self, lr_model, **kwargs):
+        return optim.Adam(self.framework.meta_params, lr=lr_model)
 
     def run_task(self, meta_input, phase):
 
