@@ -188,6 +188,7 @@ class DoubleAdaptManager(MetaModelInc):
         lr_da=0.01,
         lr_ma=0.001,
         online_lr: dict = None,
+        weight_decay: float = 0,
         reg=0.5,
         adapt_x=True,
         adapt_y=True,
