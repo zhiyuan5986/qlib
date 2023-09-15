@@ -30,7 +30,7 @@ class MetaModelInc(MetaTaskModel):
         x_dim=None,
         alpha=360,
         pretrained_model=None,
-        over_patience=20,
+        over_patience=8,
         begin_valid_epoch=0,
         **kwargs
     ):
