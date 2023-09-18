@@ -37,7 +37,9 @@ from examples.benchmarks.benchmark import Benchmark
 class Incremental:
     """
     Example:
-    python -u main.py run_all --forecast_model GRU -num_head 8 --tau 10 --first_order True --adapt_x True --adapt_y True --market csi300 --data_dir crowd_data --rank_label False
+    python -u main.py run_all --forecast_model GRU --market csi300 --data_dir crowd_data --rank_label False \
+    --first_order True --adapt_x True --adapt_y True --num_head 8 --tau 10 \
+    --lr 0.001 --lr_da 0.01 --online_lr "{'lr': 0.001, 'lr_da': 0.001, 'lr_ma': 0.001}"
     """
 
     def __init__(
@@ -53,6 +55,8 @@ class Incremental:
             lr=0.001,
             lr_da=0.01,
             lr_ma=None,
+            lr_x=None,
+            lr_y=None,
             online_lr: dict = None,
             reg=0.5,
             weight_decay=0,
@@ -63,7 +67,7 @@ class Incremental:
             adapt_y=True,
             naive=False,
             save=False,
-            begin_valid_epoch=20,
+            begin_valid_epoch=10,
             preprocess_tensor=True,
             use_extra=False,
             reload_tag: Optional[str] = None,
@@ -162,6 +166,8 @@ class Incremental:
         self.lr = lr
         self.lr_da = lr_da
         self.lr_ma = lr if lr_ma is None else lr_ma
+        self.lr_x = lr_x
+        self.lr_y = lr_y
         if online_lr is not None and 'lr' in online_lr:
             online_lr['lr_model'] = online_lr['lr']
         self.online_lr = online_lr
@@ -333,6 +339,7 @@ class Incremental:
                                     first_order=self.first_order, alpha=self.alpha, pretrained_model=model,
                                     begin_valid_epoch=self.begin_valid_epoch, factor_num=self.factor_num,
                                     lr_da=self.lr_da, lr_ma=self.lr_ma, online_lr=self.online_lr,
+                                    lr_x=self.lr_x, lr_y=self.lr_y,
                                     adapt_x=self.adapt_x, adapt_y=self.adapt_y, reg=self.reg,
                                     num_head=self.num_head, temperature=self.temperature)
         if model is None:

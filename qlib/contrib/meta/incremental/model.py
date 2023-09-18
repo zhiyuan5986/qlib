@@ -187,6 +187,8 @@ class DoubleAdaptManager(MetaModelInc):
         lr_model=0.001,
         lr_da=0.01,
         lr_ma=0.001,
+        lr_x=None,
+        lr_y=None,
         online_lr: dict = None,
         weight_decay: float = 0,
         reg=0.5,
@@ -202,12 +204,11 @@ class DoubleAdaptManager(MetaModelInc):
         begin_valid_epoch=0,
     ):
         super(DoubleAdaptManager, self).__init__(task_config, x_dim=x_dim, lr_model=lr_model, lr_ma=lr_ma, lr_da=lr_da,
+                                                 lr_x=lr_x, lr_y=lr_y,
                                                  online_lr=online_lr, first_order=first_order, alpha=alpha,
                                                  factor_num=factor_num, temperature=temperature, num_head=num_head,
                                                  pretrained_model=pretrained_model,
                                                  begin_valid_epoch=begin_valid_epoch)
-        self.lr_da = lr_da
-        self.lr_ma = lr_ma
         self.adapt_x = adapt_x
         self.adapt_y = adapt_y
         self.reg = reg
@@ -224,11 +225,13 @@ class DoubleAdaptManager(MetaModelInc):
             factor_num=factor_num, num_head=num_head, temperature=temperature, weight_decay=weight_decay
         )
 
-    def _init_meta_optimizer(self, lr_da=0.01, **kwargs):
+    def _init_meta_optimizer(self, lr_da=0.01, lr_x=None, lr_y=None, **kwargs):
         """ NOTE: the optimizer of the model adapter is self.framework.opt """
-        return optim.Adam(self.framework.meta_params, lr=lr_da)    # To optimize the data adapter
-        # return optim.Adam([{'params': self.tn.teacher_y.parameters(), 'lr': self.lr_y},
-        #                    {'params': self.tn.teacher_x.parameters()}], lr=self.lr)
+        if lr_x is None or lr_y is None:
+            return optim.Adam(self.framework.meta_params, lr=lr_da)
+        else:
+            return optim.Adam([{'params': self.framework.teacher_x.parameters(), 'lr': lr_x},
+                               {'params': self.framework.teacher_y.parameters(), 'lr': lr_y},])
 
     def override_online_lr_(self):
         if self.online_lr is not None:
@@ -238,6 +241,11 @@ class DoubleAdaptManager(MetaModelInc):
                 self.framework.opt.param_groups[0]['lr'] = self.online_lr['lr_ma']
             if 'lr_da' in self.online_lr:
                 self.opt.param_groups[0]['lr'] = self.online_lr['lr_da']
+            else:
+                if 'lr_x' in self.online_lr:
+                    self.opt.param_groups[0]['lr'] = self.online_lr['lr_x']
+                if 'lr_y' in self.online_lr:
+                    self.opt.param_groups[1]['lr'] = self.online_lr['lr_y']
 
     def run_task(self, meta_input, phase):
 
