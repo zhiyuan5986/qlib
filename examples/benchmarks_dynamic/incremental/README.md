@@ -8,7 +8,7 @@ To get rid of dependencies on qlib, please refer to our [API](https://github.com
 
 ## :newspaper: News
 Sep 15, 2023 :hammer: Support overriding learning rates during online training (meta-valid and meta-test). 
-It is highly [recommended](#remarks) to tune offline and online learning rates.  
+It is highly [**recommended**](#remarks) to tune offline and online learning rates.  
 We also **CHANGED** our argparser: the arg `--lr` now means the learning rate of forecast model, while a new arg `--lr_da` means that of data adapter. 
 
 ## Dataset
@@ -20,16 +20,14 @@ tar -zxvf qlib_bin.tar.gz -C ~/.qlib/qlib_data/crowd_data --strip-components=2
 Arg `--data_dir crowd_data` and `--data_dir cn_data` for crowd-source data and Yahoo-source data, respectively.
 
 Arg `--alpha 360` or `--alpha 158` for Alpha360 and Alpha 158, respectively. 
-> We have not carefully checked the program on Alpha158, possibly leaving bugs unresolved. 
-> It is better to experiment on Alpha 360.
->
-> **An Alph158 version will be released in the future**. Some shortcomings are discussed [later](#remarks).
  
 Note that we are to predict the stock trend **BUT NOT** the rank of stock trend, which is different from DDG-DA.
 
 To this end, we use `CSZScoreNorm` in the learn_processors instead of `CSRankNorm`.
 
-Pay attention to the arg `--rank_label False` (or `--rank_label True`) for the target label.
+Pay attention to the arg `--rank_label False` (or `--rank_label True`) for the target label. 
+
+As the current implementation is simple and may not suit rank labels, we recommend `--adapt_y False` when you have to set `--rank_label True`.  
 
 ## Requirements
 
@@ -81,22 +79,22 @@ We provide an arg `--use_extra True` to take the nearest data as additional test
 
 It is recommended to let `step` be greater than `horizon` by at least 3 or 4, e.g., `--step 5 --horizon 1`.
 
-> The current implementation does not support `step` to equal `horizon` (e.g., `--step 1 --horizon 1`).
+> The current implementation does not support `step` $\le$ `horizon` (e.g., `--step 1 --horizon 1`) during online training.
 > 
-> TODO: use $\phi^{k-2}$ and $\psi^{k-2}$ for the $k$-th online task
+> As the offline training can be conducted as usual, you can freeze the meta-learners online, initialize a forecast model by the model adapter and then incrementally update the forecast model throughout the online phase.
 
-### Re-devise the data adapter for high-dimensional features
-We experiment on Alpha360 where the feature adaptation involves 6$\times$6 affine transformation with a few parameters to learn.
+### Re-devise the data adapter for more improvement
+We mainly experiment on a simple dataset Alpha360 where the feature adaptation only involves 6$\times$6 affine transformation with a few parameters to learn.
 
-In the case of high-dimensional features (e.g., Alpha158), the dense layers are too complex and bring only a little improvement. 
-We recommend replacing the dense layers by [FiLM](https://arxiv.org/pdf/1709.07871.pdf) layers to reduce the complexity.
+For more complex datasets, please carefully design a new adapter to reduce overfitting risks due to high-dimensional features.
 
 ## Scripts
 ```bash
 # Naive incremental learning
 python -u main.py run_all --forecast_model GRU --market csi300 --data_dir crowd_data --rank_label False --naive True
 # DoubleAdapt
-python -u main.py run_all --forecast_model GRU --market csi300 --data_dir crowd_data --rank_label False -num_head 8 --tau 10
+python -u main.py run_all --forecast_model GRU --market csi300 --data_dir crowd_data --rank_label False \ 
+--num_head 8 --tau 10 --lr 0.001 --lr_da 0.01 --online_lr "{'lr': 0.001, 'lr_da': 0.0001, 'lr_ma': 0.001}"
 ```
 ## Cite
 If you find this useful for your work, please consider citing it as follows:
