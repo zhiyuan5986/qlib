@@ -95,9 +95,8 @@ class MetaModelInc(MetaTaskModel):
         self.cnt = 0
         self.framework.train()
         torch.set_grad_enabled(True)
-        # run training
-        best_ic = -1e3
-        patience = self.over_patience
+
+        best_ic, patience = -1e3, self.over_patience
         best_checkpoint = copy.deepcopy(self.framework.state_dict())
         for epoch in tqdm(range(100), desc="epoch"):
             for phase, task_list in zip(phases, meta_tasks_l):
@@ -162,7 +161,7 @@ class MetaModelInc(MetaTaskModel):
         return pred_y_all, None
 
     def run_task(self, meta_input, phase):
-        """ Naive incremental learning """
+        """ A single naive incremental learning task """
         self.framework.opt.zero_grad()
         y_hat = self.framework(meta_input["X_train"].to(self.framework.device), None)
         loss = self.framework.criterion(y_hat, meta_input["y_train"].to(self.framework.device))
@@ -184,28 +183,28 @@ class DoubleAdaptManager(MetaModelInc):
     def __init__(
         self,
         task_config,
-        lr_model=0.001,
-        lr_da=0.01,
-        lr_ma=0.001,
-        lr_x=None,
-        lr_y=None,
+        lr_model: float = 0.001,
+        lr_da: float = 0.01,
+        lr_ma: float = 0.001,
+        lr_x: float = None,
+        lr_y: float = None,
         online_lr: dict = None,
         weight_decay: float = 0,
-        reg=0.5,
-        adapt_x=True,
-        adapt_y=True,
-        first_order=True,
-        factor_num=6,
-        x_dim=360,
+        reg: float = 0.5,
+        adapt_x: bool = True,
+        adapt_y: bool = True,
+        first_order: bool = True,
+        factor_num: int = 6,
+        x_dim: int = 360,
         alpha=360,
-        num_head=8,
-        temperature=10,
+        num_head: int = 8,
+        temperature: float = 10,
+        begin_valid_epoch: int = 0,
         pretrained_model=None,
-        begin_valid_epoch=0,
     ):
         super(DoubleAdaptManager, self).__init__(task_config, x_dim=x_dim, lr_model=lr_model, lr_ma=lr_ma, lr_da=lr_da,
-                                                 lr_x=lr_x, lr_y=lr_y,
-                                                 online_lr=online_lr, first_order=first_order, alpha=alpha,
+                                                 lr_x=lr_x, lr_y=lr_y, online_lr=online_lr, weight_decay=weight_decay,
+                                                 first_order=first_order, alpha=alpha,
                                                  factor_num=factor_num, temperature=temperature, num_head=num_head,
                                                  pretrained_model=pretrained_model,
                                                  begin_valid_epoch=begin_valid_epoch)
