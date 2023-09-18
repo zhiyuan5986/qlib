@@ -53,8 +53,8 @@ class Incremental:
             rank_label=False,
             forecast_model="GRU",
             lr=0.001,
-            lr_da=0.01,
             lr_ma=None,
+            lr_da=0.01,
             lr_x=None,
             lr_y=None,
             online_lr: dict = None,
@@ -94,10 +94,14 @@ class Incremental:
                 consistent with directory name under examples/benchmarks
             lr (float):
                 learning rate of forecast model
-            lr_da (float):
-                learning rate of data adapter
             lr_ma (float):
                 learning rate of model adapter. If None, use lr.
+            lr_da (float):
+                learning rate of data adapter
+            lr_x (float):
+                if both lr_x and lr_y are not None, specify the learning rate of the feature adaptation layer.
+            lr_y (float):
+                if both lr_x and lr_y are not None, specify the learning rate of the label adaptation layer.
             online_lr (dict):
                 learning rates during meta-valid and meta-test. Example: --online lr "{'lr_da': 0, 'lr': 0.0001}".
             reg (float):
