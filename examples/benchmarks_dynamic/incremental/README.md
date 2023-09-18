@@ -48,9 +48,9 @@ Then, free the storage of training data before testing.
 Moveover, in our implementation, we cast all slices of stock data in `pandas.DataFrame` to `torch.Tensor` during data preprocessing.
 This trick largely reduce CPU occupation during training and testing while it results in duplicate storage.
 
-You can also set the arg `--preprocess_tensor False`, reducing RAM occupation to ~5GB (peak 8GB before training). 
+You can also set `--preprocess_tensor False`, reducing RAM occupation to ~5GB (peak 8GB before training). 
 Then, the data slices are created as virtual views of `pandas.DataFrame`, and the duplicates share the same memory address. 
-Each batch will be casted as `torch.Tensor` when needed, requesting new memory of a tiny size.
+Each batch will be cast as `torch.Tensor` when needed, requesting new memory of a tiny size.
 However, `--preprocess_tensor False` can exhaust all cores of CPU and the speed is lower consequently.
 
 ### GPU Memory
