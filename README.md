@@ -6,6 +6,9 @@
 [![Documentation Status](https://readthedocs.org/projects/qlib/badge/?version=latest)](https://qlib.readthedocs.io/en/latest/?badge=latest)
 [![License](https://img.shields.io/pypi/l/pyqlib)](LICENSE)
 [![Join the chat at https://gitter.im/Microsoft/qlib](https://badges.gitter.im/Microsoft/qlib.svg)](https://gitter.im/Microsoft/qlib?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+![Stars](https://img.shields.io/github/stars/SJTU-Quant/qlib)
+![Forks](https://img.shields.io/github/forks/SJTU-Quant/qlib)
+
 
 ## :newspaper: **What's NEW!** &nbsp;   :sparkling_heart: 
 Released features in our forked repo
