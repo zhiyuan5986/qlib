@@ -9,6 +9,7 @@
 ![Stars](https://img.shields.io/github/stars/SJTU-Quant/qlib)
 ![Forks](https://img.shields.io/github/forks/SJTU-Quant/qlib)
 
+<font color="red">For source codes of DoubleAdapt, please refer to</font> [examples/benchmarks_dynamic/incremental](https://github.com/SJTU-Quant/qlib/tree/main/examples/benchmarks_dynamic/incremental).
 
 ## :newspaper: **What's NEW!** &nbsp;   :sparkling_heart: 
 Released features in our forked repo
