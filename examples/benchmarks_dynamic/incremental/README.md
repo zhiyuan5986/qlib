@@ -5,7 +5,7 @@ This is the official implementation of `DoubleAdapt`, an incremental learning fr
 
 The paper has been accepted by KDD 2023, which is better to read in [[arXiv](https://arxiv.org/abs/2306.09862)].
 
-To get rid of dependencies on qlib, please refer to our [API](https://github.com/SJTU-Quant/DoubleAdapt) repo.
+To get rid of dependencies on qlib, please refer to our [API](https://github.com/SJTU-Quant/DoubleAdapt) repo. (This API repo is not well maintained and may have undiscovered bugs. We still recommend our qlib repo)
 
 ## :newspaper: News
 Sep 15, 2023 :hammer: Support overriding learning rates during online training (meta-valid and meta-test). 
@@ -15,9 +15,9 @@ We also **CHANGED** our argparser: the arg `--lr` now means the learning rate of
 ## Organization
 The runner program is [./main.py](main.py).
 
-The core implementation of the framework lies in [qlib/contrib/meta/incremental/](https://github.com/SJTU-Quant/qlib/contrib/meta/incremental/).
+The core implementation of the framework lies in [qlib/contrib/meta/incremental/](https://github.com/SJTU-Quant/qlib/blob/main/qlib/contrib/meta/incremental/).
 
-The implementation of any forecast model lies in [qlib/contrib/model/](https://github.com/SJTU-Quant/qlib/contrib/model/) (e.g., GRU is in [qlib/contrib/model/pytorch_gru.py](https://github.com/SJTU-Quant/qlib/contrib/model/pytorch_gru.py)).
+The implementation of any forecast model lies in [qlib/contrib/model/](https://github.com/SJTU-Quant/qlib/blob/main/qlib/contrib/model/) (e.g., GRU is in [qlib/contrib/model/pytorch_gru.py](https://github.com/SJTU-Quant/qlib/blob/main/qlib/contrib/model/pytorch_gru.py)).
 
 ## Scripts
 ```bash
