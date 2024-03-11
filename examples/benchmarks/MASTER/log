@@ -1,0 +1,133 @@
+nohup: ignoring input
+[32482:MainThread](2024-03-08 05:46:23,468) INFO - qlib.Initialization - [config.py:416] - default_conf: client.
+[32482:MainThread](2024-03-08 05:46:23,481) INFO - qlib.Initialization - [__init__.py:74] - qlib successfully initialized based on client settings.
+[32482:MainThread](2024-03-08 05:46:23,483) INFO - qlib.Initialization - [__init__.py:76] - data_path={'__DEFAULT_FREQ': PosixPath('/home/liuqiaoan/.qlib/qlib_data/cn_data')}
+[32482:MainThread](2024-03-08 05:48:36,592) INFO - qlib.timer - [log.py:127] - Time cost: 113.930s | Loading data Done
+/home/liuqiaoan/miniconda3/envs/qlib/lib/python3.8/site-packages/numpy/lib/nanfunctions.py:1095: RuntimeWarning: All-NaN slice encountered
+  result = np.apply_along_axis(_nanmedian1d, axis, a, overwrite_input)
+[32482:MainThread](2024-03-08 05:49:14,078) INFO - qlib.timer - [log.py:127] - Time cost: 34.315s | RobustZScoreNorm Done
+[32482:MainThread](2024-03-08 05:49:18,291) INFO - qlib.timer - [log.py:127] - Time cost: 4.207s | Fillna Done
+[32482:MainThread](2024-03-08 05:49:20,511) INFO - qlib.timer - [log.py:127] - Time cost: 1.023s | DropnaLabel Done
+/home/liuqiaoan/miniconda3/envs/qlib/lib/python3.8/site-packages/qlib/data/dataset/processor.py:365: SettingWithCopyWarning: 
+A value is trying to be set on a copy of a slice from a DataFrame.
+Try using .loc[row_indexer,col_indexer] = value instead
+
+See the caveats in the documentation: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy
+  df[cols] = t
+[32482:MainThread](2024-03-08 05:49:22,147) INFO - qlib.timer - [log.py:127] - Time cost: 1.631s | CSRankNorm Done
+[32482:MainThread](2024-03-08 05:49:22,150) INFO - qlib.timer - [log.py:127] - Time cost: 45.555s | fit & process data Done
+[32482:MainThread](2024-03-08 05:49:22,151) INFO - qlib.timer - [log.py:127] - Time cost: 159.490s | Init data Done
+[32482:MainThread](2024-03-08 05:49:47,430) INFO - qlib.timer - [log.py:127] - Time cost: 25.224s | Loading data Done
+[32482:MainThread](2024-03-08 05:49:56,839) INFO - qlib.timer - [log.py:127] - Time cost: 8.169s | RobustZScoreNorm Done
+[32482:MainThread](2024-03-08 05:49:58,550) INFO - qlib.timer - [log.py:127] - Time cost: 1.706s | Fillna Done
+[32482:MainThread](2024-03-08 05:49:58,772) INFO - qlib.timer - [log.py:127] - Time cost: 11.338s | fit & process data Done
+[32482:MainThread](2024-03-08 05:49:58,774) INFO - qlib.timer - [log.py:127] - Time cost: 36.571s | Init data Done
+[32482:MainThread](2024-03-08 05:55:34,121) INFO - qlib.workflow - [exp.py:258] - Experiment 1 starts running ...
+[32482:MainThread](2024-03-08 05:55:41,233) INFO - qlib.workflow - [recorder.py:341] - Recorder a7da3758392245f6bc1345d70840e378 starts running under Experiment 1 ...
+[32482:MainThread](2024-03-08 05:56:09,358) INFO - qlib.timer - [log.py:127] - Time cost: 0.016s | waiting `async_log` Done
+mse: 1.050449578806746 mae 0.8792733118842738
+{'IC': 0.047680858475714696,
+ 'ICIR': 0.28906500841993066,
+ 'Rank IC': 0.049963292029775896,
+ 'Rank ICIR': 0.2999024868672855}
+[32482:MainThread](2024-03-08 05:56:10,503) INFO - qlib.backtest caller - [__init__.py:93] - Create new exchange
+[32482:MainThread](2024-03-08 05:56:49,103) WARNING - qlib.online operator - [exchange.py:219] - $close field data contains nan.
+[32482:MainThread](2024-03-08 05:56:49,105) WARNING - qlib.online operator - [exchange.py:219] - $close field data contains nan.
+[32482:MainThread](2024-03-08 05:56:49,107) WARNING - qlib.online operator - [exchange.py:226] - factor.day.bin file not exists or factor contains `nan`. Order using adjusted_price.
+[32482:MainThread](2024-03-08 05:56:49,108) WARNING - qlib.online operator - [exchange.py:228] - trade unit 100 is not supported in adjusted_price mode.
+[32482:MainThread](2024-03-08 05:57:05,133) WARNING - qlib.data - [data.py:666] - load calendar error: freq=day, future=True; return current calendar!
+[32482:MainThread](2024-03-08 05:57:05,137) WARNING - qlib.data - [data.py:669] - You can get future calendar by referring to the following document: https://github.com/microsoft/qlib/blob/main/scripts/data_collector/contrib/README.md
+[32482:MainThread](2024-03-08 05:57:05,182) WARNING - qlib.BaseExecutor - [executor.py:121] - `common_infra` is not set for <qlib.backtest.executor.SimulatorExecutor object at 0x7efd37c6bfa0>
+backtest loop:   0%|          | 0/36 [00:00<?, ?it/s]/home/liuqiaoan/miniconda3/envs/qlib/lib/python3.8/site-packages/qlib/utils/index_data.py:481: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+backtest loop:   6%|▌         | 2/36 [00:00<00:06,  5.44it/s]/home/liuqiaoan/miniconda3/envs/qlib/lib/python3.8/site-packages/qlib/utils/index_data.py:481: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/liuqiaoan/miniconda3/envs/qlib/lib/python3.8/site-packages/qlib/utils/index_data.py:481: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/liuqiaoan/miniconda3/envs/qlib/lib/python3.8/site-packages/qlib/utils/index_data.py:481: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/liuqiaoan/miniconda3/envs/qlib/lib/python3.8/site-packages/qlib/utils/index_data.py:481: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+backtest loop:  19%|█▉        | 7/36 [00:00<00:02, 10.34it/s]/home/liuqiaoan/miniconda3/envs/qlib/lib/python3.8/site-packages/qlib/utils/index_data.py:481: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/liuqiaoan/miniconda3/envs/qlib/lib/python3.8/site-packages/qlib/utils/index_data.py:481: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/liuqiaoan/miniconda3/envs/qlib/lib/python3.8/site-packages/qlib/utils/index_data.py:481: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/liuqiaoan/miniconda3/envs/qlib/lib/python3.8/site-packages/qlib/utils/index_data.py:481: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+backtest loop:  33%|███▎      | 12/36 [00:01<00:02,  9.65it/s]/home/liuqiaoan/miniconda3/envs/qlib/lib/python3.8/site-packages/qlib/utils/index_data.py:481: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/liuqiaoan/miniconda3/envs/qlib/lib/python3.8/site-packages/qlib/utils/index_data.py:481: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/liuqiaoan/miniconda3/envs/qlib/lib/python3.8/site-packages/qlib/utils/index_data.py:481: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+backtest loop:  44%|████▍     | 16/36 [00:01<00:01, 13.12it/s]/home/liuqiaoan/miniconda3/envs/qlib/lib/python3.8/site-packages/qlib/utils/index_data.py:481: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/liuqiaoan/miniconda3/envs/qlib/lib/python3.8/site-packages/qlib/utils/index_data.py:481: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+backtest loop:  50%|█████     | 18/36 [00:01<00:01, 10.48it/s]/home/liuqiaoan/miniconda3/envs/qlib/lib/python3.8/site-packages/qlib/utils/index_data.py:481: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/liuqiaoan/miniconda3/envs/qlib/lib/python3.8/site-packages/qlib/utils/index_data.py:481: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+backtest loop:  58%|█████▊    | 21/36 [00:02<00:02,  6.69it/s]/home/liuqiaoan/miniconda3/envs/qlib/lib/python3.8/site-packages/qlib/utils/index_data.py:481: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/liuqiaoan/miniconda3/envs/qlib/lib/python3.8/site-packages/qlib/utils/index_data.py:481: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/liuqiaoan/miniconda3/envs/qlib/lib/python3.8/site-packages/qlib/utils/index_data.py:481: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/liuqiaoan/miniconda3/envs/qlib/lib/python3.8/site-packages/qlib/utils/index_data.py:481: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+backtest loop:  72%|███████▏  | 26/36 [00:03<00:01,  7.59it/s]/home/liuqiaoan/miniconda3/envs/qlib/lib/python3.8/site-packages/qlib/utils/index_data.py:481: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/liuqiaoan/miniconda3/envs/qlib/lib/python3.8/site-packages/qlib/utils/index_data.py:481: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/liuqiaoan/miniconda3/envs/qlib/lib/python3.8/site-packages/qlib/utils/index_data.py:481: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/liuqiaoan/miniconda3/envs/qlib/lib/python3.8/site-packages/qlib/utils/index_data.py:481: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+backtest loop:  86%|████████▌ | 31/36 [00:03<00:00,  9.08it/s]/home/liuqiaoan/miniconda3/envs/qlib/lib/python3.8/site-packages/qlib/utils/index_data.py:481: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/liuqiaoan/miniconda3/envs/qlib/lib/python3.8/site-packages/qlib/utils/index_data.py:481: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/liuqiaoan/miniconda3/envs/qlib/lib/python3.8/site-packages/qlib/utils/index_data.py:481: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+/home/liuqiaoan/miniconda3/envs/qlib/lib/python3.8/site-packages/qlib/utils/index_data.py:481: RuntimeWarning: Mean of empty slice
+  return np.nanmean(self.data)
+backtest loop: 100%|██████████| 36/36 [00:03<00:00, 12.54it/s]backtest loop: 100%|██████████| 36/36 [00:03<00:00, 10.08it/s]
+[32482:MainThread](2024-03-08 05:57:09,500) INFO - qlib.workflow - [record_temp.py:508] - Portfolio analysis record 'port_analysis_1day.pkl' has been saved as the artifact of the Experiment 1
+'The following are analysis results of benchmark return(1day).'
+                       risk
+mean              -0.000908
+std                0.018628
+annualized_return -0.216110
+information_ratio -0.752002
+max_drawdown      -0.126868
+'The following are analysis results of the excess return without cost(1day).'
+                       risk
+mean               0.000884
+std                0.023447
+annualized_return  0.210307
+information_ratio  0.581402
+max_drawdown      -0.126741
+'The following are analysis results of the excess return with cost(1day).'
+                       risk
+mean               0.000274
+std                0.023239
+annualized_return  0.065236
+information_ratio  0.181959
+max_drawdown      -0.132682
+[32482:MainThread](2024-03-08 05:57:09,529) INFO - qlib.workflow - [record_temp.py:533] - Indicator analysis record 'indicator_analysis_1day.pkl' has been saved as the artifact of the Experiment 1
+'The following are analysis results of indicators(1day).'
+     value
+ffr    1.0
+pa     0.0
+pos    0.0
+Your evaluation results can be found in the experiment named `csi300_MASTER_alpha158_horizon4_step8_backtest`.
+{'1day.excess_return_without_cost.annualized_return': 0.2103073689977153, '1day.ffr': 1.0, 'mae': 0.8792733118842738, '1day.excess_return_with_cost.max_drawdown': -0.13268230322723143, '1day.excess_return_with_cost.mean': 0.0002740988168629496, '1day.excess_return_with_cost.std': 0.023239262320079432, 'Rank ICIR': 0.2999024868672855, '1day.pa': 0.0, '1day.excess_return_without_cost.mean': 0.0008836444075534256, '1day.excess_return_without_cost.std': 0.023447102983023094, 'Rank IC': 0.049963292029775896, '1day.excess_return_without_cost.max_drawdown': -0.12674126921765616, '1day.excess_return_without_cost.information_ratio': 0.5814024008572923, '1day.excess_return_with_cost.information_ratio': 0.18195889938758375, '1day.excess_return_with_cost.annualized_return': 0.065235518413382, '1day.pos': 0.0, 'ICIR': 0.28906500841993066, 'mse': 1.050449578806746, 'IC': 0.047680858475714696}
+{'1day.excess_return_with_cost.annualized_return': [0.065235518413382],
+ '1day.excess_return_with_cost.information_ratio': [0.18195889938758375],
+ 'IC': [0.047680858475714696],
+ 'ICIR': [0.28906500841993066],
+ 'Rank IC': [0.049963292029775896],
+ 'Rank ICIR': [0.2999024868672855]}
