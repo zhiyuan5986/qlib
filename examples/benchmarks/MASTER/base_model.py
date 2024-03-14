@@ -60,9 +60,7 @@ class SequenceModel():
         self.market = market
         self.infer_exp_name = f"{self.market}_MASTER_alpha158_horizon4_step{self.basic_config['dataset']['kwargs']['step_len']}_backtest"
 
-        if self.seed is not None:
-            np.random.seed(self.seed)
-            torch.manual_seed(self.seed)
+
         self.fitted = False
 
         self.model = None
@@ -95,8 +93,11 @@ class SequenceModel():
         
         ds = init_instance_by_config(self.basic_config['dataset'], accept_types=Dataset)
         self.dl_train = ds.prepare("train", col_set=["feature", "label"], data_key=DataHandlerLP.DK_L)
+        print(self.dl_train.get_index())
         self.dl_valid = ds.prepare("valid", col_set=["feature", "label"], data_key=DataHandlerLP.DK_L)
+        print(self.dl_valid.get_index())
         self.dl_test = ds.prepare("test", col_set=["feature", "label"], data_key=DataHandlerLP.DK_L)
+        print(self.dl_test.get_index())
 
     def train_epoch(self, data_loader):
         self.model.train()
@@ -112,6 +113,7 @@ class SequenceModel():
             '''
             feature = data[:, :, 0:-1].to(self.device)
             label = data[:, -1, -1].to(self.device)
+            assert not torch.any(torch.isnan(label))
 
             pred = self.model(feature.float())
             loss = self.loss_fn(pred, label)
@@ -132,6 +134,7 @@ class SequenceModel():
             data = torch.squeeze(data, dim=0)
             feature = data[:, :, 0:-1].to(self.device)
             label = data[:, -1, -1].to(self.device)
+            assert not torch.any(torch.isnan(label))
             pred = self.model(feature.float())
             loss = self.loss_fn(pred, label)
             losses.append(loss.item())
@@ -172,8 +175,8 @@ class SequenceModel():
                 "kwargs": {"signal": "<PRED>", "topk": 30, "n_drop": 30},
             },
             "backtest": {
-                "start_time": "2020-01-01",
-                "end_time": "2020-02-28",
+                "start_time": "2017-01-01",
+                "end_time": "2020-08-01",
                 "account": 100000000,
                 "benchmark": self.benchmark,
                 "exchange_kwargs": {
@@ -250,7 +253,7 @@ class SequenceModel():
         all_metrics = {
             k: []
             for k in [
-                # 'mse', 'mae',
+                'mse', 'mae',
                 "IC",
                 "ICIR",
                 "Rank IC",
@@ -261,7 +264,7 @@ class SequenceModel():
             ]
         }
         self.load_data()
-        # self.fit()
+        self.fit()
         rec = self.predict()
         metrics = rec.list_metrics()
         print(metrics)

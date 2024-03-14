@@ -5,6 +5,8 @@ from torch.nn.modules.dropout import Dropout
 from torch.nn.modules.normalization import LayerNorm
 import math
 import yaml
+import numpy as np
+import pprint as pp
 
 from base_model import SequenceModel
 
@@ -226,11 +228,43 @@ class MASTERModel(SequenceModel):
         self.init_model()
 
     def init_model(self):
+        if self.seed is not None:
+            np.random.seed(self.seed)
+            torch.manual_seed(self.seed)
         self.model = MASTER(d_feat=self.d_feat, d_model=self.d_model, t_nhead=self.t_nhead, s_nhead=self.s_nhead,
                                    T_dropout_rate=self.T_dropout_rate, S_dropout_rate=self.S_dropout_rate,
                                    gate_input_start_index=self.gate_input_start_index,
                                    gate_input_end_index=self.gate_input_end_index, beta=self.beta)
         super(MASTERModel, self).init_model()
+    def run_all(self):
+        all_metrics = {
+            k: []
+            for k in [
+                # 'mse', 'mae',
+                "IC",
+                "ICIR",
+                "Rank IC",
+                "Rank ICIR",
+                "1day.excess_return_with_cost.annualized_return",
+                "1day.excess_return_with_cost.information_ratio",
+                # "1day.excess_return_with_cost.max_drawdown",
+            ]
+        }
+        self.load_data()
+        seed = self.seed
+        for s in range(seed, seed+5):
+            self.seed = s
+            print("--------------------")
+            print("seed: ", self.seed)
+            self.init_model()
+
+            self.fit()
+            rec = self.predict()
+            metrics = rec.list_metrics()
+            print(metrics)
+            for k in all_metrics.keys():
+                all_metrics[k].append(metrics[k])
+            pp.pprint(all_metrics)
 
 # class MASTERManager(SequenceModel):
     # def __init__(self, d_feat=158, d_model=256, t_nhead=4, s_nhead=2, T_dropout_rate=0.5, S_dropout_rate=0.5,

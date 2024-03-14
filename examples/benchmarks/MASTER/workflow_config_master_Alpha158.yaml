@@ -46,7 +46,7 @@ market_data_handler_config: &market_data_handler_config
     start_time: 2008-01-01
     end_time: 2020-02-28
     fit_start_time: 2008-01-01
-    fit_end_time: 2019-09-30
+    fit_end_time: 2014-12-31
     instruments: *market
     infer_processors:
         - class: RobustZScoreNorm
@@ -66,9 +66,9 @@ dataset:
             module_path: qlib.contrib.data.handler
             kwargs: *data_handler_config
         segments:
-            train: [2008-01-01, 2019-09-30]
-            valid: [2019-10-01, 2019-12-31]
-            test: [2020-01-01, 2020-02-28]
+            train: [2008-01-01, 2014-12-31]
+            valid: [2015-01-01, 2016-12-31]
+            test: [2017-01-01, 2020-08-01]
         step_len: 8
         market_data_handler_config: *market_data_handler_config
     # record: 

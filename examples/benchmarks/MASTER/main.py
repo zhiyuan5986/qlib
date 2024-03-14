@@ -1,4 +1,3 @@
-from master import MASTERModel
 import pickle
 from typing import Optional, List, Tuple, Union, Text
 # from base_model import SequenceModel
@@ -6,6 +5,11 @@ import yaml
 import tqdm
 import fire
 import sys
+from pathlib import Path
+
+DIRNAME = Path(__file__).absolute().resolve().parent
+sys.path.append(str(DIRNAME))
+sys.path.append(str(DIRNAME.parent.parent.parent))
 
 import qlib
 from qlib.utils import init_instance_by_config
@@ -16,6 +20,7 @@ from qlib.workflow.record_temp import SigAnaRecord, PortAnaRecord
 import torch
 from torch.utils.data import DataLoader, Sampler
 
+from master import MASTERModel
 # import logging
 # logging.basicConfig()
 
@@ -88,7 +93,6 @@ if __name__ == '__main__':
     GPU = 0
     seed = 0
     train_stop_loss_thred = 0.95
-
 
     master = MASTERModel(
         d_feat = d_feat, d_model = d_model, t_nhead = t_nhead, s_nhead = s_nhead, T_dropout_rate=dropout, S_dropout_rate=dropout,
