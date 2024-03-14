@@ -14,7 +14,7 @@ from qlib.workflow.task.gen import RollingGen
 from qlib.workflow.task.utils import TimeAdjuster
 from tqdm.auto import tqdm
 
-from .utils import get_data_from_seg, get_data_and_idx
+from .utils import get_data_from_seg, get_data_and_idx, get_data
 
 
 class MetaTaskInc:
@@ -30,28 +30,52 @@ class MetaTaskInc:
         if extra_exist:
             extra_segs = [str(dt) for dt in self.task["dataset"]["kwargs"]["segments"]["extra"]]
         test_segs = [str(dt) for dt in self.task["dataset"]["kwargs"]["segments"]["test"]]
-        if isinstance(data, TSDataSampler):
+        if isinstance(data, TSDataSampler): # our cases for MASTER
             if train_exist:
-                d_train, d_train_idx = get_data_and_idx(data, train_segs)
+                d_train, d_train_idx = get_data(data, train_segs)
+                # d_train, d_train_idx = get_data_and_idx(data, train_segs)
+                # assert isinstance(d_train, TSDataSampler), f'{type(d_train)}, {d_train.shape}'
             if extra_exist:
-                d_extra, d_extra_idx = get_data_and_idx(data, extra_segs)
-            d_test, d_test_idx = get_data_and_idx(data, test_segs)
-            self.processed_meta_input = dict(X_test=d_test[:, :, 0:-1], y_test=d_test[:, -1, -1], test_idx=d_test_idx,)
+                d_extra, d_extra_idx = get_data(data, extra_segs)
+                # d_extra, d_extra_idx = get_data_and_idx(data, extra_segs)
+            d_test, d_test_idx = get_data(data, test_segs)
+            # d_test, d_test_idx = get_data_and_idx(data, test_segs)
+            self.processed_meta_input = dict(d_test = d_test, test_idx=d_test_idx,)
+            # self.processed_meta_input = dict(X_test=d_test[:, :, 0:-1], y_test=d_test[:, -1, -1], test_idx=d_test_idx,)
             if train_exist:
                 self.processed_meta_input.update(
-                    X_train=d_train[:, :, 0:-1], y_train=d_train[:, -1, -1], train_idx=d_train_idx,
+                    d_train = d_train, train_idx=d_train_idx,
                 )
             if extra_exist:
                 self.processed_meta_input.update(
-                    X_extra=d_extra[:, :, 0:-1], y_extra=d_extra[:, -1, -1], extra_idx=d_extra_idx,
+                    d_extra = d_extra, extra_idx=d_extra_idx,
                 )
+            # original
+            ###########################################################################################
+            # if train_exist:
+            #     d_train, d_train_idx = get_data_and_idx(data, train_segs)
+            #     # assert isinstance(d_train, TSDataSampler), f'{type(d_train)}, {d_train.shape}'
+            # if extra_exist:
+            #     d_extra, d_extra_idx = get_data_and_idx(data, extra_segs)
+            # d_test, d_test_idx = get_data_and_idx(data, test_segs)
+            # self.processed_meta_input = dict(X_test=d_test[:, :, 0:-1], y_test=d_test[:, -1, -1], test_idx=d_test_idx,)
+            # if train_exist:
+            #     self.processed_meta_input.update(
+            #         X_train=d_train[:, :, 0:-1], y_train=d_train[:, -1, -1], train_idx=d_train_idx,
+            #     )
+            # if extra_exist:
+            #     self.processed_meta_input.update(
+            #         X_extra=d_extra[:, :, 0:-1], y_extra=d_extra[:, -1, -1], extra_idx=d_extra_idx,
+            #     )
+            ###########################################################################################
         else:
-            if data is None:
+            if data is None: # most case
                 ds = init_instance_by_config(self.task["dataset"], accept_types=Dataset)
                 if train_exist:
                     d_train = ds.prepare("train", col_set=["feature", "label"], data_key=DataHandlerLP.DK_L,)
                 if extra_exist:
                     d_extra = ds.prepare("extra", col_set=["feature", "label"], data_key=DataHandlerLP.DK_L,)
+                # d_test should only pass infer_processor if mode != 'train'
                 d_test = ds.prepare(
                     "test",
                     col_set=["feature", "label"],
@@ -93,7 +117,7 @@ class MetaDatasetInc(MetaTaskDataset):
         step: int,
         trunc_days: int = None,
         rolling_ext_days: int = 0,
-        segments: Union[Dict[Text, Tuple], float],
+        segments: Union[Dict[Text, Tuple], float], # lqa: This should be Union[Text, float]
         task_mode: str = "train",
         data=None,
         data_I=None,
@@ -130,6 +154,7 @@ class MetaDatasetInc(MetaTaskDataset):
         self.trunc_days = trunc_days
         self.step = step
 
+        # use task_tpl to generate tasks using RollingGen
         if isinstance(task_tpl, dict):
             rg = RollingGen(
                 step=step, trunc_days=trunc_days, task_copy_func=deepcopy_basic_type, rtype=RollingGen.ROLL_SD,
@@ -151,10 +176,15 @@ class MetaDatasetInc(MetaTaskDataset):
         logger = get_module_logger("MetaDatasetInc")
         logger.info(f"Example task for training meta model: {task_iter[0]}")
 
+        # each item in meta_task_l is an instance of MetaTaskInc, which includes a `processed_meta_input` attribute
         for t in tqdm(task_iter, desc="creating meta tasks"):
             self.meta_task_l.append(MetaTaskInc(t, data=data, data_I=data_I, mode=task_mode))
             self.task_list.append(t)
             assert len(self.meta_task_l) > 0, "No meta tasks found. Please check the data and setting"
+
+            # assert isinstance(self.meta_task_l[-1].get_meta_input()["X_train"], TSDataSampler), type(self.meta_task_l[-1].get_meta_input()["X_train"])
+            # logger = get_module_logger("MetaDatasetInc")
+            # logger.info(f'type(self.meta_task_l[-1].get_meta_input()["X_train"]): {type(self.meta_task_l[-1].get_meta_input()["X_train"])}')
 
     def _prepare_seg(self, segment: Text) -> List[MetaTaskInc]:
         if isinstance(self.segments, float):

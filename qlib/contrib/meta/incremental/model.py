@@ -6,18 +6,22 @@ from typing import Dict, List, Union, Optional, Tuple
 import numpy as np
 from qlib.model.meta import MetaTaskDataset
 from qlib.model.meta.model import MetaTaskModel
+from qlib.data.dataset import Dataset, TSDataSampler, DataHandlerLP
+from qlib.utils import init_instance_by_config
 
 from tqdm import tqdm
 import pandas as pd
 import torch
 from torch import optim
 import torch.nn.functional as F
+from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import Sampler
 import higher
 from . import higher_optim  # IMPORTANT, DO NOT DELETE
 
 from .utils import override_state, has_rnn
 from .dataset import MetaDatasetInc
-from .net import DoubleAdapt, ForecastModel, CoG
+from .net import DoubleAdapt, ForecastModel, CoG, PromptMASTER, MASTER
 
 
 class MetaModelInc(MetaTaskModel):
@@ -98,6 +102,7 @@ class MetaModelInc(MetaTaskModel):
 
         best_ic, patience = -1e3, self.over_patience
         best_checkpoint = copy.deepcopy(self.framework.state_dict())
+        # run 100 epoch
         for epoch in tqdm(range(100), desc="epoch"):
             for phase, task_list in zip(phases, meta_tasks_l):
                 if phase == "test":
@@ -693,3 +698,686 @@ class CMAML(MetaModelInc):
             )
         pred_y_all = pd.concat(pred_y_all)
         return pred_y_all, None
+
+
+    
+
+# class DatasetSampler(Dataset):
+#     def __init__(self, X, y):
+#         self.X = X
+#         self.y = y
+#         if len(X) != len(y):
+#             raise ValueError("X and y must have the same length")
+#     def __getitem__(self, index):
+#         return self.X[index, :, :], self.y[index]
+    
+#     def 
+
+# class MetaModelRolling(MetaTaskModel):
+#     def __init__(
+#         self,
+#         n_epochs,
+#         lr,
+#         online_lr: dict = None,
+#         GPU=None, 
+#         seed=None, 
+#         train_stop_loss_thred=None, 
+#         begin_valid_epoch = 0,
+#         over_patience = 8,
+#         save_path = 'model/', 
+#         save_prefix= ''
+#     ):
+#         self.n_epochs = n_epochs
+#         self.lr = lr
+#         self.online_lr = online_lr
+#         self.device = torch.device(f"cuda:{GPU}" if torch.cuda.is_available() else "cpu")
+#         self.seed = seed
+#         self.train_stop_loss_thred = train_stop_loss_thred
+#         self.begin_valid_epoch = begin_valid_epoch
+#         self.over_patience = over_patience
+#         if self.seed is not None:
+#             np.random.seed(self.seed)
+#             torch.manual_seed(self.seed)
+#         self.fitted = False
+#         # self.infer_exp_name = f"PromptMASTER_alpha158_backtest"
+
+#         self.framework = None
+#         self.train_optimizer = None
+    
+#     def init_model(self):
+#         if self.framework is None:
+#             raise ValueError("model has not been initialized")
+
+#         self.train_optimizer = optim.Adam(self.framework.parameters(), self.lr)
+#         self.framework.to(self.device)
+
+#     # def _init_data_loader(self, data, shuffle=True, drop_last=True):
+#     #     sampler = DailyBatchSamplerRandom(data, shuffle)
+#     #     data_loader = DataLoader(data, sampler=sampler, drop_last=drop_last)
+#     #     return data_loader
+
+#     def loss_fn(self, pred, label):
+#         mask = ~torch.isnan(label)
+#         loss = (pred[mask]-label[mask])**2
+#         assert not torch.any(torch.isnan(loss))
+#         return torch.mean(loss)
+
+#     def override_online_lr_(self):
+#         if self.online_lr is not None:
+#             if 'lr' in self.online_lr:
+#                 self.lr = self.online_lr['lr']
+#                 self.train_optimizer.param_groups[0]['lr'] = self.online_lr['lr']
+
+#     def state_dict(self, destination: typing.OrderedDict[str, torch.Tensor]=None, prefix='', keep_vars=False):
+#         r"""Returns a dictionary containing a whole state of the module and the state of the optimizer.
+
+#         Returns:
+#             dict:
+#                 a dictionary containing a whole state of the module and the state of the optimizer.
+#         """
+#         if destination is None:
+#             destination = OrderedDict()
+#             destination._metadata = OrderedDict()
+#         destination['framework'] = self.framework.state_dict()
+#         # destination['framework_opt'] = self.framework.opt.state_dict()
+#         destination['opt'] = self.train_optimizer.state_dict()
+#         return destination
+
+#     def load_state_dict(self, state_dict: typing.OrderedDict[str, torch.Tensor],):
+#         r"""Copies parameters and buffers from :attr:`state_dict` into
+#         this module and the optimizer.
+
+#         Args:
+#             dict:
+#                 a dict containing parameters and persistent buffers.
+#         """
+#         self.framework.load_state_dict(state_dict['framework'])
+#         # self.framework.opt.load_state_dict(state_dict['framework_opt'])
+#         self.train_optimizer.load_state_dict(state_dict['opt'])
+#     def fit(self, meta_dataset: MetaDatasetInc):
+#         phases = ["train", "test"]
+#         meta_tasks_l = meta_dataset.prepare_tasks(phases)
+
+#         self.cnt = 0
+#         self.framework.train()
+#         torch.set_grad_enabled(True)
+
+#         best_ic, patience = -1e3, 20
+#         best_checkpoint = copy.deepcopy(self.framework.state_dict())
+#         # run 40 epoch
+#         for epoch in tqdm(range(self.n_epochs), desc="epoch"):
+#             for phase, task_list in zip(phases, meta_tasks_l):
+#                 if phase == "test":
+#                     if epoch < self.begin_valid_epoch:
+#                         continue
+#                 pred_y, ic = self.run_epoch(phase, task_list)
+#                 if phase == "test":
+#                     if ic < best_ic:
+#                         patience -= 1
+#                     else:
+#                         best_ic = ic
+#                         print("best ic:", best_ic)
+#                         patience = self.over_patience
+#                         best_checkpoint = copy.deepcopy(self.framework.state_dict())
+#             if patience <= 0:
+#                 # R.save_objects(**{"model.pkl": self.tn})
+#                 break
+#         self.fitted = True
+#         self.framework.load_state_dict(best_checkpoint)
+
+#     def run_epoch(self, phase, task_list, tqdm_show=False):
+#         pred_y_all, mse_all = [], 0
+#         self.phase = phase
+
+#         indices = np.arange(len(task_list))
+#         if phase == 'train':
+#             np.random.shuffle(indices)
+#         else:
+#             if phase == "test":
+#                 checkpoint = copy.deepcopy(self.state_dict())
+#             lr = self.lr
+#             self.override_online_lr_()
+
+#         for i in tqdm(indices, desc=phase) if tqdm_show else indices:
+#             # torch.cuda.empty_cache()
+#             meta_input = task_list[i].get_meta_input()
+#             if not isinstance(meta_input['X_train'], torch.Tensor):
+#                 meta_input = {
+#                     k: torch.tensor(v, device=self.device, dtype=torch.float32) if 'idx' not in k else v
+#                     for k, v in meta_input.items()
+#                 }
+#             # assert isinstance(meta_input['X_train'], TSDataSampler)
+#             pred = self.run_task(meta_input, phase)
+#             if phase != "train":
+#                 test_idx = meta_input["test_idx"]
+#                 pred_y_all.append(
+#                     pd.DataFrame(
+#                         {
+#                             "pred": pd.Series(pred, index=test_idx),
+#                             "label": pd.Series(meta_input["y_test"].detach().cpu().numpy(), index=test_idx),
+#                         }
+#                     )
+#                 )
+#         if phase != "train":
+#             pred_y_all = pd.concat(pred_y_all)
+#         if phase == "test":
+#             self.lr = lr
+#             self.load_state_dict(checkpoint)
+#             ic = pred_y_all.groupby("datetime").apply(lambda df: df["pred"].corr(df["label"], method="pearson")).mean()
+#             # print(ic)
+#             return pred_y_all, ic
+#         return pred_y_all, None
+
+#     def run_task(self, meta_input, phase):
+#         """ A single naive incremental learning task """
+
+#         # MASTER
+#         self.train_optimizer.zero_grad()
+            
+#         X_train_data_loader = DataLoader(meta_input['X_train'], batch_size=300, shuffle=False, drop_last=False)
+#         y_train_data_loader = DataLoader(meta_input['y_train'], batch_size=300, shuffle=False, drop_last=False)
+#         for feature, label in zip(X_train_data_loader, y_train_data_loader):
+#             pred = self.framework(feature.float())
+#             loss = self.loss_fn(pred, label)
+#             # assert False, f"loss: {loss}"
+
+#             self.train_optimizer.zero_grad()
+#             loss.backward()
+#             torch.nn.utils.clip_grad_value_(self.framework.parameters(), 3.0)
+#             # for name, param in self.framework.named_parameters():
+#             #     print("name:", name)
+#             #     print("grad:", param.grad)
+#             # assert False
+#             self.train_optimizer.step()
+#         preds = []
+#         with torch.no_grad():
+#             X_test_data_loader = DataLoader(meta_input['X_test'], batch_size=300, shuffle=False, drop_last=False)
+#             for feature in X_test_data_loader:
+#                 pred = self.framework(feature.float()).detach().cpu().numpy()
+#                 preds.append(pred)
+#         pred = np.concatenate(preds)
+#         return pred
+
+#         # PromptMASTER
+#         # self.train_optimizer.zero_grad()
+
+#         # for use_prompts in [False, True]:
+#         #     if use_prompts:
+#         #         for name, param in self.framework.master.named_parameters():
+#         #             if "tatten" in name or "satten" in name or 'feature_gate' in name or 'x2y' in name:
+#         #                 param.requires_grad = False
+#         #     else:
+#         #         for name, param in self.framework.master.named_parameters():
+#         #             param.requires_grad = True
+            
+#         #     X_train_data_loader = DataLoader(meta_input['X_train'], batch_size=300, shuffle=False, drop_last=False)
+#         #     y_train_data_loader = DataLoader(meta_input['y_train'], batch_size=300, shuffle=False, drop_last=False)
+#         #     for feature, label in zip(X_train_data_loader, y_train_data_loader):
+#         #         if use_prompts:
+#         #             [pred, cos_result] = self.framework(feature.float(), use_prompts)
+#         #             loss = self.loss_fn(pred, label)+self.framework.lamb * cos_result
+#         #         else:
+#         #             pred = self.framework(feature.float(), use_prompts)
+#         #             loss = self.loss_fn(pred, label)
+
+#         #         self.train_optimizer.zero_grad()
+#         #         loss.backward()
+#         #         torch.nn.utils.clip_grad_value_(self.framework.parameters(), 3.0)
+#         #         self.train_optimizer.step()
+#         # preds = []
+#         # with torch.no_grad():
+#         #     X_test_data_loader = DataLoader(meta_input['X_test'], batch_size=300, shuffle=False, drop_last=False)
+#         #     for feature in X_test_data_loader:
+#         #         pred = self.framework(feature.float()).detach().cpu().numpy()
+
+#         #         preds.append(pred)
+#         # pred = np.concatenate(preds)
+#         # return pred
+
+#     def inference(self, meta_dataset: MetaTaskDataset):
+#         meta_tasks_test = meta_dataset.prepare_tasks("test")
+#         self.framework.train()
+#         pred_y_all, ic = self.run_epoch("online", meta_tasks_test, tqdm_show=True)
+#         return pred_y_all, ic
+class DailyBatchSamplerRandom(Sampler):
+    def __init__(self, data_source, shuffle=False):
+        self.data_source = data_source
+        self.shuffle = shuffle
+        # calculate number of samples in each batch
+        self.daily_count = pd.Series(index=self.data_source.get_index()).groupby("datetime").size().values
+        self.daily_index = np.roll(np.cumsum(self.daily_count), 1)  # calculate begin index of each batch
+        self.daily_index[0] = 0
+
+    def __iter__(self):
+        if self.shuffle:
+            index = np.arange(len(self.daily_count))
+            np.random.shuffle(index)
+            for i in index:
+                yield np.arange(self.daily_index[i], self.daily_index[i] + self.daily_count[i])
+        else:
+            for idx, count in zip(self.daily_index, self.daily_count):
+                yield np.arange(idx, idx + count)
+
+    def __len__(self):
+        return len(self.data_source)
+# the meta_input stores a TSDataSampler
+class MetaModelRolling(MetaTaskModel):
+    def __init__(
+        self,
+        n_epochs,
+        lr,
+        online_lr: dict = None,
+        GPU=None, 
+        seed=None, 
+        train_stop_loss_thred=None, 
+        begin_valid_epoch = 0,
+        over_patience = 8,
+        save_path = 'model/', 
+        save_prefix= '',
+        **kwargs
+    ):
+        self.n_epochs = n_epochs
+        self.lr = lr
+        self.online_lr = online_lr
+        self.device = torch.device(f"cuda:{GPU}" if torch.cuda.is_available() else "cpu")
+        self.seed = seed
+        self.train_stop_loss_thred = train_stop_loss_thred
+        self.begin_valid_epoch = begin_valid_epoch
+        self.over_patience = over_patience
+        if self.seed is not None:
+            np.random.seed(self.seed)
+            torch.manual_seed(self.seed)
+        self.fitted = False
+        # self.infer_exp_name = f"PromptMASTER_alpha158_backtest"
+
+        self.framework = None
+        self.train_optimizer = None
+    
+    def init_model(self):
+        if self.framework is None:
+            raise ValueError("model has not been initialized")
+
+        self.train_optimizer = optim.Adam(self.framework.parameters(), self.lr)
+        self.framework.to(self.device)
+
+    # def load_data(self):
+    #     # with open(f'/data/liuqiaoan/{self.market}/{self.market}_dl_train.pkl', 'rb') as f:
+    #     #     self.dl_train = pickle.load(f)
+    #     # with open(f'/data/liuqiaoan/{self.market}/{self.market}_dl_valid.pkl', 'rb') as f:
+    #     #     self.dl_valid = pickle.load(f)
+    #     # with open(f'/data/liuqiaoan/{self.market}/{self.market}_dl_test.pkl', 'rb') as f:
+    #     #     self.dl_test = pickle.load(f)
+    #     # print("Data Loaded.")
+        
+    #     ds_train_valid = init_instance_by_config(self.basic_config['train_valid_dataset'], accept_types=Dataset)
+    #     ds_online = init_instance_by_config(self.basic_config['online_dataset'], accept_types=Dataset)
+    #     self.dl_train = ds_train_valid.prepare("train", col_set=["feature", "label"], data_key=DataHandlerLP.DK_L)
+    #     self.dl_valid = ds_train_valid.prepare("valid", col_set=["feature", "label"], data_key=DataHandlerLP.DK_L)
+    #     self.dl_online = ds_online.prepare("test", col_set=["feature", "label"], data_key=DataHandlerLP.DK_L)
+
+    def _init_data_loader(self, data, shuffle=True, drop_last=True):
+        sampler = DailyBatchSamplerRandom(data, shuffle)
+        data_loader = DataLoader(data, sampler=sampler, drop_last=drop_last)
+        return data_loader
+
+    def loss_fn(self, pred, label):
+        mask = ~torch.isnan(label)
+        loss = (pred[mask]-label[mask])**2
+        assert not torch.any(torch.isnan(loss))
+        return torch.mean(loss)
+
+    def override_online_lr_(self):
+        if self.online_lr is not None:
+            if 'lr' in self.online_lr:
+                self.lr = self.online_lr['lr']
+                self.train_optimizer.param_groups[0]['lr'] = self.online_lr['lr']
+
+    def state_dict(self, destination: typing.OrderedDict[str, torch.Tensor]=None, prefix='', keep_vars=False):
+        r"""Returns a dictionary containing a whole state of the module and the state of the optimizer.
+
+        Returns:
+            dict:
+                a dictionary containing a whole state of the module and the state of the optimizer.
+        """
+        if destination is None:
+            destination = OrderedDict()
+            destination._metadata = OrderedDict()
+        destination['framework'] = self.framework.state_dict()
+        # destination['framework_opt'] = self.framework.opt.state_dict()
+        destination['opt'] = self.train_optimizer.state_dict()
+        return destination
+
+    def load_state_dict(self, state_dict: typing.OrderedDict[str, torch.Tensor],):
+        r"""Copies parameters and buffers from :attr:`state_dict` into
+        this module and the optimizer.
+
+        Args:
+            dict:
+                a dict containing parameters and persistent buffers.
+        """
+        self.framework.load_state_dict(state_dict['framework'])
+        # self.framework.opt.load_state_dict(state_dict['framework_opt'])
+        self.train_optimizer.load_state_dict(state_dict['opt'])
+
+    def fit(self, dl_train, dl_valid):
+        train_loader = self._init_data_loader(dl_train, shuffle=True, drop_last=True)
+        valid_loader = self._init_data_loader(dl_valid, shuffle=False, drop_last=True)
+
+        self.fitted = True
+        best_param = None
+        for step in range(self.n_epochs):
+            train_loss = self.train_epoch(train_loader)
+            val_loss = self.test_epoch(valid_loader)
+
+            print("Epoch %d, train_loss %.6f, valid_loss %.6f " % (step, train_loss, val_loss))
+            best_param = copy.deepcopy(self.framework.state_dict())
+
+            if train_loss <= self.train_stop_loss_thred:
+                break
+    
+        
+        # phases = ["train", "test"]
+        # meta_tasks_l = meta_dataset.prepare_tasks(phases)
+
+        # self.cnt = 0
+        # self.framework.train()
+        # torch.set_grad_enabled(True)
+
+        # best_ic, patience = -1e3, 20
+        # best_checkpoint = copy.deepcopy(self.framework.state_dict())
+        # # run 40 epoch
+        # for epoch in tqdm(range(self.n_epochs), desc="epoch"):
+        #     for phase, task_list in zip(phases, meta_tasks_l):
+        #         if phase == "test":
+        #             if epoch < self.begin_valid_epoch:
+        #                 continue
+        #         pred_y, ic = self.run_epoch(phase, task_list)
+        #         if phase == "test":
+        #             if ic < best_ic:
+        #                 patience -= 1
+        #             else:
+        #                 best_ic = ic
+        #                 print("best ic:", best_ic)
+        #                 patience = self.over_patience
+        #                 best_checkpoint = copy.deepcopy(self.framework.state_dict())
+        #     if patience <= 0:
+        #         # R.save_objects(**{"model.pkl": self.tn})
+        #         break
+        # self.fitted = True
+        # # self.framework.load_state_dict(best_checkpoint)
+
+    def train_epoch(self, train_loader):
+        self.framework.train()
+        losses = []
+        for data in train_loader:
+            data = torch.squeeze(data, dim=0)
+            '''
+            data.shape: (N, T, F)
+            N - number of stocks
+            T - length of lookback_window, 8
+            F - 158 factors + 63 market information + 1 label           
+            '''
+            # print(data.shape)
+            feature = data[:, :, 0:-1].to(self.device)
+            label = data[:, -1, -1].to(self.device)
+
+            pred = self.framework(feature.float())
+            # print("pred:", pred)
+            # print("label:", label)
+            loss = self.loss_fn(pred, label)
+            # print("loss:", loss)
+            # print("lr:", self.train_optimizer.state_dict()['param_groups'][0]['lr'])
+            losses.append(loss.item())
+
+            self.train_optimizer.zero_grad()
+            loss.backward()
+            torch.nn.utils.clip_grad_value_(self.framework.parameters(), 3.0)
+            self.train_optimizer.step()
+        return float(np.mean(losses))
+
+    def test_epoch(self, data_loader):
+        self.framework.eval()
+        losses = []
+
+        for data in data_loader:
+            data = torch.squeeze(data, dim=0)
+            feature = data[:, :, 0:-1].to(self.device)
+            label = data[:, -1, -1].to(self.device)
+            pred = self.framework(feature.float())
+            loss = self.loss_fn(pred, label)
+            losses.append(loss.item())
+
+        return float(np.mean(losses))
+    
+    def online_epoch(self, phase, task_list, tqdm_show = False):
+        # update every 20 days
+        pred_y_all, mse_all = [], 0
+        self.phase = phase
+
+        indices = np.arange(len(task_list))
+        # if phase == 'train':
+        #     np.random.shuffle(indices)
+        # else:
+        #     if phase == "test":
+        #         checkpoint = copy.deepcopy(self.state_dict())
+        #     lr = self.lr
+        #     self.override_online_lr_()
+
+        for i in tqdm(indices, desc=phase) if tqdm_show else indices:
+            # torch.cuda.empty_cache()
+            meta_input = task_list[i].get_meta_input()
+            # if not isinstance(meta_input['X_train'], torch.Tensor):
+            #     meta_input = {
+            #         k: torch.tensor(v, device=self.device, dtype=torch.float32) if 'idx' not in k else v
+            #         for k, v in meta_input.items()
+            #     }
+            # assert isinstance(meta_input['X_train'], TSDataSampler)
+            pred, label = self.run_task(meta_input)
+            test_idx = meta_input["test_idx"]
+            pred_y_all.append(
+                pd.DataFrame(
+                    {
+                        "pred": pd.Series(pred, index=test_idx),
+                        "label": pd.Series(label, index=test_idx),
+                    }
+                )
+            )
+        pred_y_all = pd.concat(pred_y_all)
+        # if phase == "test":
+        #     self.lr = lr
+        #     self.load_state_dict(checkpoint)
+        #     ic = pred_y_all.groupby("datetime").apply(lambda df: df["pred"].corr(df["label"], method="pearson")).mean()
+        #     # print(ic)
+        #     return pred_y_all, ic
+        return pred_y_all, None
+
+
+    # def run_epoch(self, phase, task_list, tqdm_show=False):
+    #     pred_y_all, mse_all = [], 0
+    #     self.phase = phase
+
+    #     indices = np.arange(len(task_list))
+    #     if phase == 'train':
+    #         np.random.shuffle(indices)
+    #     else:
+    #         if phase == "test":
+    #             checkpoint = copy.deepcopy(self.state_dict())
+    #         lr = self.lr
+    #         self.override_online_lr_()
+
+    #     for i in tqdm(indices, desc=phase) if tqdm_show else indices:
+    #         # torch.cuda.empty_cache()
+    #         meta_input = task_list[i].get_meta_input()
+    #         # if not isinstance(meta_input['X_train'], torch.Tensor):
+    #         #     meta_input = {
+    #         #         k: torch.tensor(v, device=self.device, dtype=torch.float32) if 'idx' not in k else v
+    #         #         for k, v in meta_input.items()
+    #         #     }
+    #         # assert isinstance(meta_input['X_train'], TSDataSampler)
+    #         pred, label = self.run_task(meta_input, phase)
+    #         if phase != "train":
+    #             test_idx = meta_input["test_idx"]
+    #             pred_y_all.append(
+    #                 pd.DataFrame(
+    #                     {
+    #                         "pred": pd.Series(pred, index=test_idx),
+    #                         "label": pd.Series(label, index=test_idx),
+    #                     }
+    #                 )
+    #             )
+    #     if phase != "train":
+    #         pred_y_all = pd.concat(pred_y_all)
+    #     if phase == "test":
+    #         self.lr = lr
+    #         self.load_state_dict(checkpoint)
+    #         ic = pred_y_all.groupby("datetime").apply(lambda df: df["pred"].corr(df["label"], method="pearson")).mean()
+    #         # print(ic)
+    #         return pred_y_all, ic
+    #     return pred_y_all, None
+
+    def run_task(self, meta_input):
+        """ A single naive incremental learning task """
+
+        # MASTER
+        # self.train_optimizer.zero_grad()
+        train_loader = self._init_data_loader(meta_input['d_train'], shuffle=True, drop_last=True)
+        test_loader = self._init_data_loader(meta_input['d_test'], shuffle=False, drop_last=True)
+        
+        # X_train_data_loader = DataLoader(meta_input['X_train'], batch_size=300, shuffle=False, drop_last=False)
+        # y_train_data_loader = DataLoader(meta_input['y_train'], batch_size=300, shuffle=False, drop_last=False)
+        self.framework.train()
+        losses = 0
+
+        for data in train_loader:
+            data = torch.squeeze(data, dim=0)
+            '''
+            data.shape: (N, T, F)
+            N - number of stocks
+            T - length of lookback_window, 8
+            F - 158 factors + 63 market information + 1 label           
+            '''
+            # print(data.shape)
+            feature = data[:, :, 0:-1].to(self.device)
+            label = data[:, -1, -1].to(self.device)
+
+            pred = self.framework(feature.float())
+            loss = self.loss_fn(pred, label)
+            losses += loss
+            # losses.append(loss.item())
+
+        self.train_optimizer.zero_grad()
+        losses.backward()
+        torch.nn.utils.clip_grad_value_(self.framework.parameters(), 3.0)
+        self.train_optimizer.step()
+
+        preds = []
+        labels = []
+        with torch.no_grad():
+            for data in test_loader:
+                data = torch.squeeze(data, dim=0)
+                # print(data.shape)
+                feature = data[:, :, 0:-1].to(self.device)
+                label = data[:, -1, -1].detach().numpy()
+
+                pred = self.framework(feature.float()).detach().cpu().numpy()
+
+                preds.append(pred)
+                labels.append(label)
+        pred = np.concatenate(preds)
+        label = np.concatenate(labels)
+        return pred, label
+
+        # PromptMASTER
+        # self.train_optimizer.zero_grad()
+
+        # for use_prompts in [False, True]:
+        #     if use_prompts:
+        #         for name, param in self.framework.master.named_parameters():
+        #             if "tatten" in name or "satten" in name or 'feature_gate' in name or 'x2y' in name:
+        #                 param.requires_grad = False
+        #     else:
+        #         for name, param in self.framework.master.named_parameters():
+        #             param.requires_grad = True
+            
+        #     X_train_data_loader = DataLoader(meta_input['X_train'], batch_size=300, shuffle=False, drop_last=False)
+        #     y_train_data_loader = DataLoader(meta_input['y_train'], batch_size=300, shuffle=False, drop_last=False)
+        #     for feature, label in zip(X_train_data_loader, y_train_data_loader):
+        #         if use_prompts:
+        #             [pred, cos_result] = self.framework(feature.float(), use_prompts)
+        #             loss = self.loss_fn(pred, label)+self.framework.lamb * cos_result
+        #         else:
+        #             pred = self.framework(feature.float(), use_prompts)
+        #             loss = self.loss_fn(pred, label)
+
+        #         self.train_optimizer.zero_grad()
+        #         loss.backward()
+        #         torch.nn.utils.clip_grad_value_(self.framework.parameters(), 3.0)
+        #         self.train_optimizer.step()
+        # preds = []
+        # with torch.no_grad():
+        #     X_test_data_loader = DataLoader(meta_input['X_test'], batch_size=300, shuffle=False, drop_last=False)
+        #     for feature in X_test_data_loader:
+        #         pred = self.framework(feature.float()).detach().cpu().numpy()
+
+        #         preds.append(pred)
+        # pred = np.concatenate(preds)
+        # return pred
+
+    def inference(self, meta_dataset: MetaTaskDataset):
+        meta_tasks_test = meta_dataset.prepare_tasks("test")
+        self.framework.train()
+        pred_y_all, ic = self.online_epoch("online", meta_tasks_test, tqdm_show=True)
+        return pred_y_all, ic
+
+class MASTERManager(MetaModelRolling):
+    def __init__(
+        self,
+        d_feat: int = 20, 
+        d_model: int = 64, 
+        t_nhead: int = 4, 
+        s_nhead: int = 2, 
+        gate_input_start_index=None, 
+        gate_input_end_index=None,
+        T_dropout_rate=0.5, 
+        S_dropout_rate=0.5, 
+        beta=5.0, 
+        m_prompts = 10, 
+        n_prompts = 5, 
+        len_prompts = 5, 
+        lamb = 0.5,
+        **kwargs
+    ):
+        super().__init__(**kwargs)
+        self.d_model = d_model
+        self.d_feat = d_feat
+
+        self.gate_input_start_index = gate_input_start_index
+        self.gate_input_end_index = gate_input_end_index
+
+        self.T_dropout_rate = T_dropout_rate
+        self.S_dropout_rate = S_dropout_rate
+        self.t_nhead = t_nhead
+        self.s_nhead = s_nhead
+        self.beta = beta
+
+        self.m_prompts = m_prompts
+        self.n_prompts = n_prompts
+        self.len_prompts = len_prompts
+        self.lamb = lamb
+        self.init_model()
+    
+    def init_model(self):
+        # self.framework = PromptMASTER(d_feat=self.d_feat, d_model=self.d_model, t_nhead=self.t_nhead, s_nhead=self.s_nhead,
+        #                            T_dropout_rate=self.T_dropout_rate, S_dropout_rate=self.S_dropout_rate,
+        #                            gate_input_start_index=self.gate_input_start_index,
+        #                            gate_input_end_index=self.gate_input_end_index, beta=self.beta,
+        #                            m_prompts = self.m_prompts, n_prompts = self.n_prompts, len_prompts = self.len_prompts, lamb = self.lamb)
+        self.framework = MASTER(d_feat=self.d_feat, d_model=self.d_model, t_nhead=self.t_nhead, s_nhead=self.s_nhead,
+                                   T_dropout_rate=self.T_dropout_rate, S_dropout_rate=self.S_dropout_rate,
+                                   gate_input_start_index=self.gate_input_start_index,
+                                   gate_input_end_index=self.gate_input_end_index, beta=self.beta,)
+        for name, param in self.framework.named_parameters():
+            print(name)
+            print(param)
+        super(MASTERManager, self).init_model()
+
