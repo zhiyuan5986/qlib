@@ -88,27 +88,26 @@ if __name__ == '__main__':
         beta = 5
     benchmark = 'SH000300'
 
-    n_epochs = 40
+    n_epoch = 40
     lr = 8e-6
     GPU = 0
     seed = 0
     train_stop_loss_thred = 0.95
-    
+
     m_prompts = 10
     n_prompts = 5
     len_prompts = 5
     lamb = 0.5
-    use_prompts = True
 
-    master = PromptMASTERModel(
+    promptmaster = PromptMASTERModel(
         d_feat = d_feat, d_model = d_model, t_nhead = t_nhead, s_nhead = s_nhead, T_dropout_rate=dropout, S_dropout_rate=dropout,
         beta=beta, gate_input_end_index=gate_input_end_index, gate_input_start_index=gate_input_start_index,
-        n_epochs=n_epochs, lr = lr, GPU = GPU, seed = seed, train_stop_loss_thred = train_stop_loss_thred,
-        m_prompts = m_prompts, n_prompts = n_prompts, len_prompts = len_prompts, lamb = lamb, use_prompts = use_prompts,
+        n_epochs=n_epoch, lr = lr, GPU = GPU, seed = seed, train_stop_loss_thred = train_stop_loss_thred,
+        m_prompts = m_prompts, n_prompts = n_prompts, len_prompts = len_prompts, lamb = lamb,
         save_path='model/', save_prefix=universe, benchmark = benchmark, market = universe
     )
 
-    master.run_all()
+    promptmaster.run_all()
 
     # print(sys.argv)
     # fire.Fire(MASTERModel)

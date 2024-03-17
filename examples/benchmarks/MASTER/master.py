@@ -183,25 +183,39 @@ class MASTER(nn.Module):
         self.d_gate_input = (gate_input_end_index - gate_input_start_index) # F'
         self.feature_gate = Gate(self.d_gate_input, d_feat, beta=beta)
 
-        self.layers = nn.Sequential(
-            # feature layer
-            nn.Linear(d_feat, d_model),
-            PositionalEncoding(d_model),
-            # intra-stock aggregation
-            TAttention(d_model=d_model, nhead=t_nhead, dropout=T_dropout_rate),
-            # inter-stock aggregation
-            SAttention(d_model=d_model, nhead=s_nhead, dropout=S_dropout_rate),
-            TemporalAttention(d_model=d_model),
-            # decoder
-            nn.Linear(d_model, 1)
-        )
+        self.x2y = nn.Linear(d_feat, d_model)
+        self.pe = PositionalEncoding(d_model)
+        self.tatten = TAttention(d_model=d_model, nhead=t_nhead, dropout=T_dropout_rate)
+        self.satten = SAttention(d_model=d_model, nhead=s_nhead, dropout=S_dropout_rate)
+        self.temporalatten = TemporalAttention(d_model=d_model)
+        self.decoder = nn.Linear(d_model, 1)
+
+        # self.layers = nn.Sequential(
+        #     # feature layer
+        #     nn.Linear(d_feat, d_model),
+        #     PositionalEncoding(d_model),
+        #     # intra-stock aggregation
+        #     TAttention(d_model=d_model, nhead=t_nhead, dropout=T_dropout_rate),
+        #     # inter-stock aggregation
+        #     SAttention(d_model=d_model, nhead=s_nhead, dropout=S_dropout_rate),
+        #     TemporalAttention(d_model=d_model),
+        #     # decoder
+        #     nn.Linear(d_model, 1)
+        # )
 
     def forward(self, x):
         src = x[:, :, :self.gate_input_start_index] # N, T, D
         gate_input = x[:, -1, self.gate_input_start_index:self.gate_input_end_index]
         src = src * torch.unsqueeze(self.feature_gate(gate_input), dim=1)
 
-        output = self.layers(src).squeeze(-1)
+        x = self.x2y(src)
+        x = self.pe(x)
+        x = self.tatten(x)
+        x = self.satten(x)
+        x = self.temporalatten(x)
+        output = self.decoder(x).squeeze(-1)
+
+        # output = self.layers(src).squeeze(-1)
 
         return output
 

@@ -69,6 +69,7 @@ class MetaModelRolling(MetaTaskModel):
         save_prefix= '',
         benchmark = 'SH000300', 
         market = 'csi300',
+        use_prompts = True,
         **kwargs
     ):
         self.n_epochs = n_epochs
@@ -90,17 +91,23 @@ class MetaModelRolling(MetaTaskModel):
 
         self.infer_exp_name = self.meta_exp_name+"_backtest"
 
-        self.framework = None
+        self.model = None
         self.train_optimizer = None
+
+        self.use_prompts = use_prompts
 
     @property
     def meta_exp_name(self):
         return f"{self.market}_MASTER_alpha158_seed{self.seed}"
 
-    def load_model(self, param_path):
+    def load_model(self, param_path, use_pretrained_prompts = False):
         try:
-            self.framework.load_state_dict(torch.load(param_path, map_location=self.device))
-            self.fitted = True
+            if use_pretrained_prompts:
+                self.model.load_state_dict(torch.load(param_path, map_location=self.device))
+                self.fitted = True
+            else:
+                self.model.master.load_state_dict(torch.load(param_path, map_location=self.device))
+                self.fitted = True
         except:
             raise ValueError("Model not found.") 
 
@@ -114,8 +121,8 @@ class MetaModelRolling(MetaTaskModel):
         if destination is None:
             destination = OrderedDict()
             destination._metadata = OrderedDict()
-        destination['framework'] = self.framework.state_dict()
-        # destination['framework_opt'] = self.framework.opt.state_dict()
+        destination['model'] = self.model.state_dict()
+        # destination['model_opt'] = self.model.opt.state_dict()
         destination['opt'] = self.train_optimizer.state_dict()
         return destination
 
@@ -127,15 +134,15 @@ class MetaModelRolling(MetaTaskModel):
             dict:
                 a dict containing parameters and persistent buffers.
         """
-        self.framework.load_state_dict(state_dict['framework'])
-        # self.framework.opt.load_state_dict(state_dict['framework_opt'])
+        self.model.load_state_dict(state_dict['model'])
+        # self.model.opt.load_state_dict(state_dict['model_opt'])
         self.train_optimizer.load_state_dict(state_dict['opt'])
     def init_model(self):
-        if self.framework is None:
+        if self.model is None:
             raise ValueError("model has not been initialized")
 
-        self.train_optimizer = optim.Adam(self.framework.parameters(), self.lr)
-        self.framework.to(self.device)
+        self.train_optimizer = optim.Adam(self.model.parameters(), self.lr)
+        self.model.to(self.device)
 
     def override_online_lr_(self):
         if self.online_lr is not None:
@@ -260,7 +267,8 @@ class MetaModelRolling(MetaTaskModel):
         
         # X_train_data_loader = DataLoader(meta_input['X_train'], batch_size=300, shuffle=False, drop_last=False)
         # y_train_data_loader = DataLoader(meta_input['y_train'], batch_size=300, shuffle=False, drop_last=False)
-        self.framework.train()
+        self.model.train()
+
         losses = 0
 
         for data in train_loader:
@@ -274,14 +282,18 @@ class MetaModelRolling(MetaTaskModel):
             feature = data[:, :, 0:-1].to(self.device)
             label = data[:, -1, -1].to(self.device)
 
-            pred = self.framework(feature.float())
-            loss = self.loss_fn(pred, label)
+            if self.use_prompts:
+                pred, cos_result = self.model(feature.float(), self.use_prompts)
+                loss = self.loss_fn(pred, label)+self.model.lamb * cos_result
+            else:
+                pred = self.model(feature.float())
+                loss = self.loss_fn(pred, label)
             losses += loss
 
         # update once in every task 
         self.train_optimizer.zero_grad()
         losses.backward()
-        torch.nn.utils.clip_grad_value_(self.framework.parameters(), 3.0)
+        torch.nn.utils.clip_grad_value_(self.model.parameters(), 3.0)
         self.train_optimizer.step()
 
         preds = []
@@ -291,9 +303,11 @@ class MetaModelRolling(MetaTaskModel):
                 data = torch.squeeze(data, dim=0)
                 feature = data[:, :, 0:-1].to(self.device)
                 label = data[:, -1, -1].detach().numpy()
-
-                pred = self.framework(feature.float()).detach().cpu().numpy()
-
+                if self.use_prompts:
+                    (pred, _) = self.model(feature.float(), self.use_prompts)
+                    pred = pred.detach().cpu().numpy()
+                else:
+                    pred = self.model(feature.float()).detach().cpu().numpy()
                 preds.append(pred)
                 labels.append(label)
         pred = np.concatenate(preds)
@@ -318,7 +332,7 @@ class MetaModelRolling(MetaTaskModel):
             meta_input = task_list[i].get_meta_input()
             # if not isinstance(meta_input['X_train'], torch.Tensor):
             #     meta_input = {
-            #         k: torch.tensor(v, device=self.framework.device, dtype=torch.float32) if 'idx' not in k else v
+            #         k: torch.tensor(v, device=self.model.device, dtype=torch.float32) if 'idx' not in k else v
             #         for k, v in meta_input.items()
             #     }
             pred, label = self.run_task(meta_input)
@@ -347,11 +361,15 @@ class MetaModelRolling(MetaTaskModel):
         meta_tasks_l = self.md_offline.prepare_tasks(phases)
 
         self.cnt = 0
-        self.framework.train()
+        self.model.train()
         torch.set_grad_enabled(True)
+        # freeze some parameters
+        for name, param in self.model.master.named_parameters():
+            if "tatten" in name or "satten" in name or 'feature_gate' in name or 'x2y' in name:
+                param.requires_grad = False
 
         best_ic, patience = -1e3, 8
-        best_checkpoint = copy.deepcopy(self.framework.state_dict())
+        best_checkpoint = copy.deepcopy(self.model.state_dict())
         # run 100 epoch
         for epoch in tqdm(range(self.n_epochs), desc="epoch"):
             for phase, task_list in zip(phases, meta_tasks_l):
@@ -366,12 +384,12 @@ class MetaModelRolling(MetaTaskModel):
                         best_ic = ic
                         print("best ic:", best_ic)
                         patience = self.over_patience
-                        best_checkpoint = copy.deepcopy(self.framework.state_dict())
+                        best_checkpoint = copy.deepcopy(self.model.state_dict())
             if patience <= 0:
                 # R.save_objects(**{"model.pkl": self.tn})
                 break
         self.fitted = True
-        self.framework.load_state_dict(best_checkpoint)
+        self.model.load_state_dict(best_checkpoint)
     
     def backtest(self, pred_y_all):
         backtest_config = {
@@ -399,14 +417,14 @@ class MetaModelRolling(MetaTaskModel):
         mae = np.abs(pred_y_all['pred'].to_numpy() - pred_y_all['label'].to_numpy()).mean()
         print('mse:', mse, 'mae', mae)
         rec.log_metrics(mse=mse, mae=mae)
-        SigAnaRecord(recorder=rec, skip_existing=True).generate()
+        SigAnaRecord(recorder=rec, skip_existing=False).generate()
         PortAnaRecord(recorder=rec, config=backtest_config, skip_existing=True).generate()
         print(f"Your evaluation results can be found in the experiment named `{self.infer_exp_name}`.")
         return rec
 
     def inference(self):
         meta_tasks_test = self.md_offline.prepare_tasks("test")
-        self.framework.train()
+        self.model.train()
         pred_y_all, ic = self.run_epoch("online", meta_tasks_test, tqdm_show=True)
         return pred_y_all, ic 
 
@@ -418,7 +436,7 @@ class MetaModelRolling(MetaTaskModel):
 
         with R.start(experiment_name=self.infer_exp_name):
             pred_y_all, ic = self.inference()
-            # print('lr_model:', meta_model.lr_model, 'lr_ma:', meta_model.framework.opt.param_groups[0]['lr'],
+            # print('lr_model:', meta_model.lr_model, 'lr_ma:', meta_model.model.opt.param_groups[0]['lr'],
             #       'lr_da:', meta_model.opt.param_groups[0]['lr'])
             print('lr:', self.lr)
             R.save_objects(**{"pred.pkl": pred_y_all[["pred"]], "label.pkl": pred_y_all[["label"]]})

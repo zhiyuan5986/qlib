@@ -88,7 +88,7 @@ if __name__ == '__main__':
         beta = 5
     benchmark = 'SH000300'
 
-    n_epoch = 40
+    n_epochs = 40
     lr = 8e-6
     GPU = 0
     seed = 0
@@ -97,7 +97,7 @@ if __name__ == '__main__':
     master = MASTERModel(
         d_feat = d_feat, d_model = d_model, t_nhead = t_nhead, s_nhead = s_nhead, T_dropout_rate=dropout, S_dropout_rate=dropout,
         beta=beta, gate_input_end_index=gate_input_end_index, gate_input_start_index=gate_input_start_index,
-        n_epochs=n_epoch, lr = lr, GPU = GPU, seed = seed, train_stop_loss_thred = train_stop_loss_thred,
+        n_epochs=n_epochs, lr = lr, GPU = GPU, seed = seed, train_stop_loss_thred = train_stop_loss_thred,
         save_path='model/', save_prefix=universe, benchmark = benchmark, market = universe
     )
 
