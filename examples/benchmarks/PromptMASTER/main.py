@@ -95,8 +95,8 @@ if __name__ == '__main__':
     train_stop_loss_thred = 0.95
 
     m_prompts = 10
-    n_prompts = 5
-    len_prompts = 5
+    n_prompts = 3
+    len_prompts = 2
     lamb = 0.5
 
     promptmaster = PromptMASTERModel(

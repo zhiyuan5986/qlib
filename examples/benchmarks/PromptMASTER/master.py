@@ -240,8 +240,10 @@ class PromptMASTER(nn.Module):
         # self.decoder = nn.Linear(d_model, 1)
 
         self.keys = nn.Parameter(torch.zeros((m_prompts, d_feat)))
+        # nn.init.trunc_normal_(self.keys, mean=0.0, std=1.4826, a = -3, b = -3)
         nn.init.uniform_(self.keys, a = 0, b = 0.01)
         self.prompts = nn.Parameter(torch.zeros((m_prompts, len_prompts, d_feat)))
+        # nn.init.trunc_normal_(self.keys, mean=0.0, std=1.4826, a = -3, b = -3)
         nn.init.uniform_(self.prompts, a = 0, b = 0.01)
         self.n_prompts = n_prompts
         self.lamb = lamb

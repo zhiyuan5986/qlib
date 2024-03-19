@@ -272,7 +272,8 @@ class MASTERModel(SequenceModel):
             print("seed: ", self.seed)
             self.init_model()
 
-            self.fit()
+            # self.fit()
+            self.model.load_state_dict(torch.load(f"./model/csi300master_{self.seed}.pkl", map_location = self.device))
             rec = self.predict()
             metrics = rec.list_metrics()
             print(metrics)

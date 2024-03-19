@@ -1,0 +1,115 @@
+[11401:MainThread](2024-03-17 09:56:56,166) INFO - qlib.Initialization - [config.py:416] - default_conf: client.
+[11401:MainThread](2024-03-17 09:56:56,171) INFO - qlib.Initialization - [__init__.py:74] - qlib successfully initialized based on client settings.
+[11401:MainThread](2024-03-17 09:56:56,171) INFO - qlib.Initialization - [__init__.py:76] - data_path={'__DEFAULT_FREQ': PosixPath('/home/liuqiaoan/.qlib/qlib_data/cn_data')}
+[11401:MainThread](2024-03-17 09:57:22,258) INFO - qlib.timer - [log.py:127] - Time cost: 22.444s | Loading data Done
+/home/liuqiaoan/miniconda3/envs/qlib-without-qlib/lib/python3.8/site-packages/numpy/lib/nanfunctions.py:1095: RuntimeWarning: All-NaN slice encountered
+  result = np.apply_along_axis(_nanmedian1d, axis, a, overwrite_input)
+[11401:MainThread](2024-03-17 09:57:30,364) INFO - qlib.timer - [log.py:127] - Time cost: 7.464s | RobustZScoreNorm Done
+[11401:MainThread](2024-03-17 09:57:31,084) INFO - qlib.timer - [log.py:127] - Time cost: 0.719s | Fillna Done
+[11401:MainThread](2024-03-17 09:57:31,631) INFO - qlib.timer - [log.py:127] - Time cost: 0.290s | DropnaLabel Done
+/home/liuqiaoan/Documents/BachelorDissertation/qlib-lqa/qlib/qlib/data/dataset/processor.py:368: SettingWithCopyWarning: 
+A value is trying to be set on a copy of a slice from a DataFrame.
+Try using .loc[row_indexer,col_indexer] = value instead
+
+See the caveats in the documentation: https://pandas.pydata.org/pandas-docs/stable/user_guide/indexing.html#returning-a-view-versus-a-copy
+  df[cols] = t
+[11401:MainThread](2024-03-17 09:57:31,895) INFO - qlib.timer - [log.py:127] - Time cost: 0.263s | CSRankNorm Done
+[11401:MainThread](2024-03-17 09:57:31,898) INFO - qlib.timer - [log.py:127] - Time cost: 9.638s | fit & process data Done
+[11401:MainThread](2024-03-17 09:57:31,898) INFO - qlib.timer - [log.py:127] - Time cost: 32.086s | Init data Done
+[11401:MainThread](2024-03-17 09:57:36,977) INFO - qlib.timer - [log.py:127] - Time cost: 5.027s | Loading data Done
+[11401:MainThread](2024-03-17 09:57:38,571) INFO - qlib.timer - [log.py:127] - Time cost: 1.505s | RobustZScoreNorm Done
+[11401:MainThread](2024-03-17 09:57:38,766) INFO - qlib.timer - [log.py:127] - Time cost: 0.194s | Fillna Done
+[11401:MainThread](2024-03-17 09:57:38,778) INFO - qlib.timer - [log.py:127] - Time cost: 1.800s | fit & process data Done
+[11401:MainThread](2024-03-17 09:57:38,779) INFO - qlib.timer - [log.py:127] - Time cost: 6.830s | Init data Done
+MultiIndex([('2008-01-02', 'SH600000'),
+            ('2008-01-02', 'SH600004'),
+            ('2008-01-02', 'SH600006'),
+            ('2008-01-02', 'SH600007'),
+            ('2008-01-02', 'SH600008'),
+            ('2008-01-02', 'SH600009'),
+            ('2008-01-02', 'SH600010'),
+            ('2008-01-02', 'SH600011'),
+            ('2008-01-02', 'SH600015'),
+            ('2008-01-02', 'SH600016'),
+            ...
+            ('2014-12-31', 'SZ300015'),
+            ('2014-12-31', 'SZ300017'),
+            ('2014-12-31', 'SZ300024'),
+            ('2014-12-31', 'SZ300027'),
+            ('2014-12-31', 'SZ300058'),
+            ('2014-12-31', 'SZ300070'),
+            ('2014-12-31', 'SZ300124'),
+            ('2014-12-31', 'SZ300133'),
+            ('2014-12-31', 'SZ300146'),
+            ('2014-12-31', 'SZ300251')],
+           names=['datetime', 'instrument'], length=476513)
+MultiIndex([('2015-01-05', 'SH600000'),
+            ('2015-01-05', 'SH600008'),
+            ('2015-01-05', 'SH600009'),
+            ('2015-01-05', 'SH600010'),
+            ('2015-01-05', 'SH600011'),
+            ('2015-01-05', 'SH600015'),
+            ('2015-01-05', 'SH600016'),
+            ('2015-01-05', 'SH600018'),
+            ('2015-01-05', 'SH600019'),
+            ('2015-01-05', 'SH600023'),
+            ...
+            ('2016-12-30', 'SZ300072'),
+            ('2016-12-30', 'SZ300085'),
+            ('2016-12-30', 'SZ300124'),
+            ('2016-12-30', 'SZ300133'),
+            ('2016-12-30', 'SZ300144'),
+            ('2016-12-30', 'SZ300146'),
+            ('2016-12-30', 'SZ300168'),
+            ('2016-12-30', 'SZ300182'),
+            ('2016-12-30', 'SZ300251'),
+            ('2016-12-30', 'SZ300315')],
+           names=['datetime', 'instrument'], length=127403)
+MultiIndex([('2017-01-03', 'SH600000'),
+            ('2017-01-03', 'SH600008'),
+            ('2017-01-03', 'SH600009'),
+            ('2017-01-03', 'SH600010'),
+            ('2017-01-03', 'SH600015'),
+            ('2017-01-03', 'SH600016'),
+            ('2017-01-03', 'SH600018'),
+            ('2017-01-03', 'SH600019'),
+            ('2017-01-03', 'SH600021'),
+            ('2017-01-03', 'SH600023'),
+            ...
+            ('2020-07-31', 'SZ300136'),
+            ('2020-07-31', 'SZ300142'),
+            ('2020-07-31', 'SZ300144'),
+            ('2020-07-31', 'SZ300347'),
+            ('2020-07-31', 'SZ300408'),
+            ('2020-07-31', 'SZ300413'),
+            ('2020-07-31', 'SZ300433'),
+            ('2020-07-31', 'SZ300498'),
+            ('2020-07-31', 'SZ300601'),
+            ('2020-07-31', 'SZ300628')],
+           names=['datetime', 'instrument'], length=252102)
+--------------------
+seed:  0
+Epoch 0, train_loss 2.162231, valid_loss 1.003800 
+Epoch 1, train_loss 1.710666, valid_loss 0.988178 
+Epoch 2, train_loss 1.507572, valid_loss 0.987140 
+Epoch 3, train_loss 1.393724, valid_loss 0.986942 
+Epoch 4, train_loss 1.314291, valid_loss 0.987591 
+Epoch 5, train_loss 1.255934, valid_loss 0.987044 
+Epoch 6, train_loss 1.211635, valid_loss 0.986828 
+Epoch 7, train_loss 1.177809, valid_loss 0.987305 
+Epoch 8, train_loss 1.150306, valid_loss 0.986589 
+Epoch 9, train_loss 1.128163, valid_loss 0.986426 
+Epoch 10, train_loss 1.110465, valid_loss 0.986606 
+Epoch 11, train_loss 1.094874, valid_loss 0.986467 
+Epoch 12, train_loss 1.082955, valid_loss 0.986897 
+Epoch 13, train_loss 1.072495, valid_loss 0.987207 
+Epoch 14, train_loss 1.063025, valid_loss 0.986311 
+Epoch 15, train_loss 1.055114, valid_loss 0.986951 
+Epoch 16, train_loss 1.047538, valid_loss 0.986880 
+Epoch 17, train_loss 1.041418, valid_loss 0.986683 
+Epoch 18, train_loss 1.035950, valid_loss 0.986739 
+Epoch 19, train_loss 1.030605, valid_loss 0.986393 
+Epoch 20, train_loss 1.026628, valid_loss 0.987372 
+Epoch 21, train_loss 1.022162, valid_loss 0.987190 
+Epoch 22, train_loss 1.018809, valid_loss 0.986625 
+Epoch 23, train_loss 1.015378, valid_loss 0.987186 

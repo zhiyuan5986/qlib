@@ -1,0 +1,1 @@
+nohup python -u main.py > ./log/mprompts10_nprompts5_lenprompts5_lamb0.5.log 2>&1 &

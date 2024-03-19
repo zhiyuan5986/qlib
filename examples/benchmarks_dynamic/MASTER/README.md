@@ -1,0 +1,2 @@
+- `best-param` means we choose the pretrained model of MASTER with best valid loss 
+- `not-best-param` means we choose the pretrained model of MASTER with 40 training epochs

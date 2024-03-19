@@ -8,7 +8,7 @@ import yaml
 import numpy as np
 import pprint as pp
 
-from base_model import MetaModelRolling
+from base_model import SequenceModel
 
 
 class PositionalEncoding(nn.Module):
@@ -172,61 +172,6 @@ class TemporalAttention(nn.Module):
         output = torch.matmul(lam, z).squeeze(1)  # [N, 1, T], [N, T, D] --> [N, 1, D]
         return output
 
-class PromptMASTER(nn.Module):
-    def __init__(self, d_feat=158, d_model=256, t_nhead=4, s_nhead=2, T_dropout_rate=0.5, S_dropout_rate=0.5,
-                 gate_input_start_index=158, gate_input_end_index=221, beta=None, m_prompts = 10, n_prompts = 5, len_prompts = 5, lamb = 0.5):
-        super(PromptMASTER, self).__init__()
-        # # market
-        # self.gate_input_start_index = gate_input_start_index
-        # self.gate_input_end_index = gate_input_end_index
-        # self.d_gate_input = (gate_input_end_index - gate_input_start_index) # F'
-        
-        # master
-        self.master = MASTER(d_feat=d_feat, d_model=d_model, t_nhead=t_nhead, s_nhead=s_nhead, T_dropout_rate=T_dropout_rate, S_dropout_rate=S_dropout_rate,
-                             gate_input_start_index=gate_input_start_index, gate_input_end_index=gate_input_end_index, beta=beta)
-        
-        # self.feature_gate = Gate(self.d_gate_input, d_feat, beta=beta)
-
-        # self.x2y = nn.Linear(d_feat, d_model)
-        # self.pe = PositionalEncoding(d_model)
-        # self.tatten = TAttention(d_model=d_model, nhead=t_nhead, dropout=T_dropout_rate)
-        # self.satten = SAttention(d_model=d_model, nhead=s_nhead, dropout=S_dropout_rate)
-        # self.temporalatten = TemporalAttention(d_model=d_model)
-        # self.decoder = nn.Linear(d_model, 1)
-
-        self.keys = nn.Parameter(torch.zeros((m_prompts, d_feat)))
-        nn.init.uniform_(self.keys, a = 0, b = 0.01)
-        self.prompts = nn.Parameter(torch.zeros((m_prompts, len_prompts, d_feat)))
-        nn.init.uniform_(self.prompts, a = 0, b = 0.01)
-        self.n_prompts = n_prompts
-        self.lamb = lamb
-
-    def forward(self, x, use_prompts = False):
-        src = x[:, :, :self.master.gate_input_start_index] # N, T, D
-        gate_input = x[:, -1, self.master.gate_input_start_index:self.master.gate_input_end_index]
-        market_infos = self.master.feature_gate(gate_input)
-        src = src * torch.unsqueeze(market_infos, dim=1)
-
-        # if use_prompts == True:
-        if use_prompts:
-            cos_result = torch.norm(self.keys-market_infos[-1,:], dim=1) / self.keys.norm(dim=1) / market_infos.norm()
-            topk = torch.topk(cos_result, self.n_prompts)
-            selected_prompts = self.prompts[topk.indices,:,:]
-            prompts = selected_prompts.flatten(start_dim=0, end_dim = 1)
-            prompts = prompts.unsqueeze(dim=0).repeat(src.shape[0], 1, 1)
-            src = torch.cat([src, prompts], dim=1)
-
-        x = self.master.x2y(src)
-        x = self.master.pe(x)
-        x = self.master.tatten(x)
-        x = self.master.satten(x)
-        x = self.master.temporalatten(x)
-        output = self.master.decoder(x).squeeze(-1)
-        
-        if use_prompts:
-            return output, torch.sum(cos_result[topk.indices])
-        else:
-            return output
 
 class MASTER(nn.Module):
     def __init__(self, d_feat=158, d_model=256, t_nhead=4, s_nhead=2, T_dropout_rate=0.5, S_dropout_rate=0.5,
@@ -272,8 +217,65 @@ class MASTER(nn.Module):
 
         return output
 
+class PromptMASTER(nn.Module):
+    def __init__(self, d_feat=158, d_model=256, t_nhead=4, s_nhead=2, T_dropout_rate=0.5, S_dropout_rate=0.5,
+                 gate_input_start_index=158, gate_input_end_index=221, beta=None, m_prompts = 10, n_prompts = 5, len_prompts = 5, lamb = 0.5):
+        super(PromptMASTER, self).__init__()
+        # # market
+        # self.gate_input_start_index = gate_input_start_index
+        # self.gate_input_end_index = gate_input_end_index
+        # self.d_gate_input = (gate_input_end_index - gate_input_start_index) # F'
+        
+        # master
+        self.master = MASTER(d_feat=d_feat, d_model=d_model, t_nhead=t_nhead, s_nhead=s_nhead, T_dropout_rate=T_dropout_rate, S_dropout_rate=S_dropout_rate,
+                             gate_input_start_index=gate_input_start_index, gate_input_end_index=gate_input_end_index, beta=beta)
+        
+        # self.feature_gate = Gate(self.d_gate_input, d_feat, beta=beta)
 
-class PromptMASTERModel(MetaModelRolling):
+        # self.x2y = nn.Linear(d_feat, d_model)
+        # self.pe = PositionalEncoding(d_model)
+        # self.tatten = TAttention(d_model=d_model, nhead=t_nhead, dropout=T_dropout_rate)
+        # self.satten = SAttention(d_model=d_model, nhead=s_nhead, dropout=S_dropout_rate)
+        # self.temporalatten = TemporalAttention(d_model=d_model)
+        # self.decoder = nn.Linear(d_model, 1)
+
+        self.keys = nn.Parameter(torch.zeros((m_prompts, d_feat)))
+        # nn.init.trunc_normal_(self.keys, mean=0.0, std=1.4826, a = -3, b = -3)
+        nn.init.uniform_(self.keys, a = 0, b = 0.01)
+        self.prompts = nn.Parameter(torch.zeros((m_prompts, len_prompts, d_feat)))
+        # nn.init.trunc_normal_(self.keys, mean=0.0, std=1.4826, a = -3, b = -3)
+        nn.init.uniform_(self.prompts, a = 0, b = 0.01)
+        self.n_prompts = n_prompts
+        self.lamb = lamb
+
+    def forward(self, x, use_prompts = False):
+        src = x[:, :, :self.master.gate_input_start_index] # N, T, D
+        gate_input = x[:, -1, self.master.gate_input_start_index:self.master.gate_input_end_index]
+        market_infos = self.master.feature_gate(gate_input)
+        src = src * torch.unsqueeze(market_infos, dim=1)
+
+        # if use_prompts == True:
+        if use_prompts:
+            cos_result = torch.norm(self.keys-market_infos[-1,:], dim=1) / self.keys.norm(dim=1) / market_infos.norm()
+            topk = torch.topk(cos_result, self.n_prompts)
+            selected_prompts = self.prompts[topk.indices,:,:]
+            prompts = selected_prompts.flatten(start_dim=0, end_dim = 1)
+            prompts = prompts.unsqueeze(dim=0).repeat(src.shape[0], 1, 1)
+            src = torch.cat([src, prompts], dim=1)
+
+        x = self.master.x2y(src)
+        x = self.master.pe(x)
+        x = self.master.tatten(x)
+        x = self.master.satten(x)
+        x = self.master.temporalatten(x)
+        output = self.master.decoder(x).squeeze(-1)
+        
+        if use_prompts:
+            return output, torch.sum(cos_result[topk.indices])
+        else:
+            return output
+
+class PromptMASTERModel(SequenceModel):
     def __init__(
             self, d_feat: int = 158, d_model: int = 256, t_nhead: int = 4, s_nhead: int = 2, gate_input_start_index=158, gate_input_end_index=221,
             T_dropout_rate=0.5, S_dropout_rate=0.5, beta=None, m_prompts = 10, n_prompts = 5, len_prompts = 5, lamb = 0.5, **kwargs,
@@ -295,6 +297,8 @@ class PromptMASTERModel(MetaModelRolling):
         self.len_prompts = len_prompts
         self.lamb = lamb
 
+        with open("./workflow_config_master_Alpha158.yaml", 'r') as f:
+            self.basic_config = yaml.safe_load(f)
         super(PromptMASTERModel, self).__init__(**kwargs)
         self.init_model()
 
@@ -307,8 +311,9 @@ class PromptMASTERModel(MetaModelRolling):
                                    gate_input_start_index=self.gate_input_start_index,
                                    gate_input_end_index=self.gate_input_end_index, beta=self.beta,
                                    m_prompts = self.m_prompts, n_prompts = self.n_prompts, len_prompts = self.len_prompts, lamb = self.lamb)
-        self.load_model(param_path=f"../../benchmarks/PromptMASTER-BothTraining/model/mprompts{self.m_prompts}_nprompts{self.n_prompts}_lenprompts{self.len_prompts}_lamb{self.lamb}/{self.market}promptmaster_{self.seed}.pkl", use_pretrained_prompts=True)
+        # self.load_model(f"../MASTER/model/{self.market}master_{self.seed}.pkl")
         super(PromptMASTERModel, self).init_model()
+
     def run_all(self):
         all_metrics = {
             k: []
@@ -332,8 +337,7 @@ class PromptMASTERModel(MetaModelRolling):
             self.init_model()
 
             self.fit()
-            rec = self.online_training()
-
+            rec = self.predict()
             metrics = rec.list_metrics()
             print(metrics)
             for k in all_metrics.keys():

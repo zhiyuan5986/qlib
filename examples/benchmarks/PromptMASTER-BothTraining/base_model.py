@@ -173,18 +173,21 @@ class SequenceModel():
 
         self.fitted = True
         best_param = None
+        best_val_loss = 1e3
 
         # freeze some parameters
-        for name, param in self.model.master.named_parameters():
-            if "tatten" in name or "satten" in name or 'feature_gate' in name or 'x2y' in name:
-                param.requires_grad = False
+        # for name, param in self.model.master.named_parameters():
+        #     if "tatten" in name or "satten" in name or 'feature_gate' in name or 'x2y' in name:
+        #         param.requires_grad = False
 
         for step in range(self.n_epochs):
             train_loss = self.train_epoch(train_loader)
             val_loss = self.test_epoch(valid_loader)
 
             print("Epoch %d, train_loss %.6f, valid_loss %.6f " % (step, train_loss, val_loss))
-            best_param = copy.deepcopy(self.model.state_dict())
+            if best_val_loss > val_loss:
+                best_param = copy.deepcopy(self.model.state_dict())
+                best_val_loss = val_loss
 
             if train_loss <= self.train_stop_loss_thred:
                 break

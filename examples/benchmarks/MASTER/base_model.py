@@ -156,35 +156,59 @@ class SequenceModel():
 
         self.fitted = True
         best_param = None
+        best_val_loss = 1e3
+
         for step in range(self.n_epochs):
             train_loss = self.train_epoch(train_loader)
             val_loss = self.test_epoch(valid_loader)
 
             print("Epoch %d, train_loss %.6f, valid_loss %.6f " % (step, train_loss, val_loss))
-            best_param = copy.deepcopy(self.model.state_dict())
+            if best_val_loss > val_loss:
+                best_param = copy.deepcopy(self.model.state_dict())
+                best_val_loss = val_loss
 
             if train_loss <= self.train_stop_loss_thred:
                 break
         torch.save(best_param, f'{self.save_path}{self.save_prefix}master_{self.seed}.pkl')
 
     def backtest(self, predictions, labels):
+        # backtest_config = {
+        #     "strategy": {
+        #         "class": "TopkDropoutStrategy",
+        #         "module_path": "qlib.contrib.strategy",
+        #         "kwargs": {"signal": "<PRED>", "topk": 30, "n_drop": 30},
+        #     },
+        #     "backtest": {
+        #         "start_time": "2017-01-01",
+        #         "end_time": "2020-08-01",
+        #         "account": 100000000,
+        #         "benchmark": self.benchmark,
+        #         "exchange_kwargs": {
+        #             # "limit_threshold":  0.095,
+        #             "deal_price": "close",
+        #             # "open_cost": 0.0005,
+        #             # "close_cost": 0.0015,
+        #             # "min_cost": 5,
+        #         },
+        #     },
+        # }
         backtest_config = {
             "strategy": {
                 "class": "TopkDropoutStrategy",
                 "module_path": "qlib.contrib.strategy",
-                "kwargs": {"signal": "<PRED>", "topk": 30, "n_drop": 30},
+                "kwargs": {"signal": "<PRED>", "topk": 50, "n_drop": 5},
             },
             "backtest": {
-                "start_time": "2017-01-01",
-                "end_time": "2020-08-01",
+                "start_time": None,
+                "end_time": None,
                 "account": 100000000,
                 "benchmark": self.benchmark,
                 "exchange_kwargs": {
-                    # "limit_threshold":  0.095,
+                    "limit_threshold": 0.095,
                     "deal_price": "close",
-                    # "open_cost": 0.0005,
-                    # "close_cost": 0.0015,
-                    # "min_cost": 5,
+                    "open_cost": 0.0005,
+                    "close_cost": 0.0015,
+                    "min_cost": 5,
                 },
             },
         }
@@ -231,6 +255,11 @@ class SequenceModel():
             mask = labels.isnull()
             predictions = predictions[~mask]
             labels = labels[~mask]
+
+            print(predictions.shape)
+            print(labels.shape)
+            print(predictions.isnull().sum())
+            print(labels.isnull().sum())
             
             metrics = {
                 'IC': np.mean(ic),
