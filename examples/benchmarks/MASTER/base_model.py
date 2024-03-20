@@ -58,7 +58,6 @@ class SequenceModel():
         self.train_stop_loss_thred = train_stop_loss_thred
         self.benchmark = benchmark
         self.market = market
-        self.infer_exp_name = f"{self.market}_MASTER_alpha158_horizon4_step{self.basic_config['dataset']['kwargs']['step_len']}_backtest"
 
 
         self.fitted = False

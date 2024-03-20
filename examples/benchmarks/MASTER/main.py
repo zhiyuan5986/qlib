@@ -6,6 +6,7 @@ import tqdm
 import fire
 import sys
 from pathlib import Path
+import argparse
 
 DIRNAME = Path(__file__).absolute().resolve().parent
 sys.path.append(str(DIRNAME))
@@ -21,57 +22,22 @@ import torch
 from torch.utils.data import DataLoader, Sampler
 
 from master import MASTERModel
-# import logging
-# logging.basicConfig()
 
-
-# Please install qlib first before load the data.
-# with open(f'data/{universe}/{universe}_dl_train.pkl', 'rb') as f:
-#     dl_train = pickle.load(f)
-# with open(f'data/{universe}/{universe}_dl_valid.pkl', 'rb') as f:
-#     dl_valid = pickle.load(f)
-# with open(f'data/{universe}/{universe}_dl_test.pkl', 'rb') as f:
-#     dl_test = pickle.load(f)
-# print("Data Loaded.")
-
-# class MASTERManager(SequenceModel):
-#     def __init__(self, d_feat=158, d_model=256, t_nhead=4, s_nhead=2, T_dropout_rate=0.5, S_dropout_rate=0.5,
-#                  gate_input_start_index=158, gate_input_end_index=221, beta=None, m_prompts = 10, n_prompts = 5, len_prompts = 5, lamb = 0.5, **kwargs):
-#                 #  n_epochs = 40, lr = 8e-6, GPU = 3, seed = 0, train_stop_loss_thred = 0.95, benchmark = 'SH000300', market = 'csi300'):
-#         self.d_feat = d_feat
-#         self.d_model = d_model
-#         self.t_nhead = t_nhead
-#         self.s_nhead = s_nhead
-#         self.T_dropout_rate = T_dropout_rate
-#         self.S_dropout_rate = S_dropout_rate
-#         self.gate_input_start_index = gate_input_start_index
-#         self.gate_input_end_index = gate_input_end_index
-#         self.beta = beta
-#         self.m_prompts = m_prompts
-#         self.n_prompts = n_prompts
-#         self.len_prompts = len_prompts
-#         self.lamb = lamb
-#         with open("./workflow_config_master_Alpha158.yaml", 'r') as f:
-#             self.basic_config = yaml.safe_load(f)
-
-#         super.__init__(self, **kwargs)
-
-    # def load_data(self) -> Tuple[TSDataSampler]:
-    #     ds = init_instance_by_config(self.basic_config['dataset'], accept_types=Dataset)
-    #     self.train_data = ds.prepare("train", col_set=["feature", "label"], data_key=DataHandlerLP.DK_L)
-    #     self.valid_data = ds.prepare("valid", col_set=["feature", "label"], data_key=DataHandlerLP.DK_I)
-    #     self.test_data = ds.prepare("test", col_set=["feature", "label"], data_key=DataHandlerLP.DK_I)
-
-
-    # def train(self):
-        
-
-
-    
-    # def test(self):
-    
+def parse_args():
+    """parse arguments. You can add other arguments if needed."""
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--mpronmpts", type=int, default=10,
+        help="num of prompts in the prompt pool")
+    parser.add_argument("--nprompts", type=int, default=5,
+        help="num of prompts to be chosen when inference")
+    parser.add_argument("--lenprompts", type=int, default=5,
+        help="length of prompts")
+    parser.add_argument("--horizon", type=int, default=1,
+        help="horizon of label")
+    return parser.parse_args()
 
 if __name__ == '__main__':
+    args = parse_args()
     qlib.init(provider_uri='~/.qlib/qlib_data/cn_data', region='cn')
     d_feat = 158
     d_model = 256
@@ -90,15 +56,16 @@ if __name__ == '__main__':
 
     n_epoch = 40
     lr = 8e-6
-    GPU = 0
+    GPU = 3
     seed = 0
     train_stop_loss_thred = 0.95
+    horizon = args.horizon
 
     master = MASTERModel(
         d_feat = d_feat, d_model = d_model, t_nhead = t_nhead, s_nhead = s_nhead, T_dropout_rate=dropout, S_dropout_rate=dropout,
         beta=beta, gate_input_end_index=gate_input_end_index, gate_input_start_index=gate_input_start_index,
         n_epochs=n_epoch, lr = lr, GPU = GPU, seed = seed, train_stop_loss_thred = train_stop_loss_thred,
-        save_path='model/', save_prefix=universe, benchmark = benchmark, market = universe
+        save_path='model/', save_prefix=universe, benchmark = benchmark, market = universe, horizon = args.horizon
     )
 
     master.run_all()

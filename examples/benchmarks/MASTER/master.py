@@ -223,7 +223,7 @@ class MASTER(nn.Module):
 class MASTERModel(SequenceModel):
     def __init__(
             self, d_feat: int = 158, d_model: int = 256, t_nhead: int = 4, s_nhead: int = 2, gate_input_start_index=158, gate_input_end_index=221,
-            T_dropout_rate=0.5, S_dropout_rate=0.5, beta=None, **kwargs,
+            T_dropout_rate=0.5, S_dropout_rate=0.5, beta=None, horizon = 1, **kwargs,
     ):
         self.d_model = d_model
         self.d_feat = d_feat
@@ -236,9 +236,12 @@ class MASTERModel(SequenceModel):
         self.t_nhead = t_nhead
         self.s_nhead = s_nhead
         self.beta = beta
+        super(MASTERModel, self).__init__(**kwargs)
+
         with open("./workflow_config_master_Alpha158.yaml", 'r') as f:
             self.basic_config = yaml.safe_load(f)
-        super(MASTERModel, self).__init__(**kwargs)
+        self.basic_config['data_handler_config']['label'] = [f"Ref($close, -{horizon+1}) / Ref($close, -1) - 1"]
+        self.infer_exp_name = f"{self.market}_MASTER_alpha158_horizon{horizon}_step{self.basic_config['dataset']['kwargs']['step_len']}_backtest"
         self.init_model()
 
     def init_model(self):
@@ -266,14 +269,14 @@ class MASTERModel(SequenceModel):
         }
         self.load_data()
         seed = self.seed
-        for s in range(seed, seed+5):
+        for s in range(seed, seed+10):
             self.seed = s
             print("--------------------")
             print("seed: ", self.seed)
             self.init_model()
 
-            # self.fit()
-            self.model.load_state_dict(torch.load(f"./model/csi300master_{self.seed}.pkl", map_location = self.device))
+            self.fit()
+            # self.model.load_state_dict(torch.load(f"./model/csi300master_{self.seed}.pkl", map_location = self.device))
             rec = self.predict()
             metrics = rec.list_metrics()
             print(metrics)
