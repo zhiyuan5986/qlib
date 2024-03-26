@@ -307,31 +307,35 @@ class PromptMASTERModel(MetaModelRolling):
                                    gate_input_start_index=self.gate_input_start_index,
                                    gate_input_end_index=self.gate_input_end_index, beta=self.beta,
                                    m_prompts = self.m_prompts, n_prompts = self.n_prompts, len_prompts = self.len_prompts, lamb = self.lamb)
-        self.load_model(param_path=f"../../benchmarks/PromptMASTER-BothTraining/model/mprompts{self.m_prompts}_nprompts{self.n_prompts}_lenprompts{self.len_prompts}_lamb{self.lamb}/{self.market}promptmaster_{self.seed}.pkl", use_pretrained_prompts=True)
+        if self.only_backtest:
+            self.load_model(param_path=f"./model/mprompts{self.m_prompts}_nprompts{self.n_prompts}_lenprompts{self.len_prompts}_lamb{self.lamb}/{self.market}promptmaster_{self.seed}.pkl", use_pretrained_prompts=True)
+        else:
+            self.load_model(param_path=f"../../benchmarks/PromptMASTER/model/mprompts{self.m_prompts}_nprompts{self.n_prompts}_lenprompts{self.len_prompts}_lamb{self.lamb}/{self.market}promptmaster_{self.seed}.pkl", use_pretrained_prompts=True)
         super(PromptMASTERModel, self).init_model()
     def run_all(self):
         all_metrics = {
             k: []
             for k in [
-                'mse', 'mae',
+                # 'mse', 'mae',
                 "IC",
                 "ICIR",
                 "Rank IC",
                 "Rank ICIR",
-                "1day.excess_return_with_cost.annualized_return",
-                "1day.excess_return_with_cost.information_ratio",
+                "1day.excess_return_without_cost.annualized_return",
+                "1day.excess_return_without_cost.information_ratio",
                 # "1day.excess_return_with_cost.max_drawdown",
             ]
         }
         self.load_data()
         seed = self.seed
-        for s in range(seed, seed+5):
+        for s in range(seed, seed+10):
             self.seed = s
             print("--------------------")
             print("seed: ", self.seed)
             self.init_model()
 
-            self.fit()
+            if not self.only_backtest:
+                self.fit()
             rec = self.online_training()
 
             metrics = rec.list_metrics()
@@ -339,6 +343,9 @@ class PromptMASTERModel(MetaModelRolling):
             for k in all_metrics.keys():
                 all_metrics[k].append(metrics[k])
             pp.pprint(all_metrics)
+
+        for k in all_metrics.keys():
+            print(f"{k}: {np.mean(all_metrics[k])} +- {np.std(all_metrics[k])}")
 
 # class MASTERManager(SequenceModel):
     # def __init__(self, d_feat=158, d_model=256, t_nhead=4, s_nhead=2, T_dropout_rate=0.5, S_dropout_rate=0.5,

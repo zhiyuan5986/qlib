@@ -434,19 +434,21 @@ class MASTERTSDatasetH(TSDatasetH):
         # TSDatasetH will retrieve more data for complete time-series
 
         ext_slice = self._extend_slice(slc, self.cal, self.step_len)
+        only_label = kwargs.pop("only_label", False)
         data = super(TSDatasetH, self)._prepare_seg(ext_slice, **kwargs)
 
         ############################## Add market information ###########################
-        marketData = self.get_market_information(ext_slice)
-        cols = pd.MultiIndex.from_tuples([("feature", feature) for feature in marketData.columns])
-        marketData = pd.DataFrame(marketData.values, columns = cols, index = marketData.index)
-        # print(marketData.index)
-        # print(marketData.columns)
-        # print(data.index)
-        # print(data.columns)
-        data = data.iloc[:,:-1].join(marketData).join(data.iloc[:,-1])
-        # print(data.columns)
-        # print(data.shape)
+        if not only_label:
+            marketData = self.get_market_information(ext_slice)
+            cols = pd.MultiIndex.from_tuples([("feature", feature) for feature in marketData.columns])
+            marketData = pd.DataFrame(marketData.values, columns = cols, index = marketData.index)
+            # print(marketData.index)
+            # print(marketData.columns)
+            # print(data.index)
+            # print(data.columns)
+            data = data.iloc[:,:-1].join(marketData).join(data.iloc[:,-1])
+            # print(data.columns)
+            # print(data.shape)
         #################################################################################
         flt_kwargs = copy.deepcopy(kwargs)
         if flt_col is not None:

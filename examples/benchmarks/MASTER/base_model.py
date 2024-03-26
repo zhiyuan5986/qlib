@@ -17,7 +17,7 @@ from qlib.data.dataset import Dataset, DataHandlerLP
 from qlib.contrib.data.dataset import TSDataSampler
 from qlib.workflow.record_temp import SigAnaRecord, PortAnaRecord
 from qlib.workflow import R, Experiment
-
+from qlib.workflow.task.utils import TimeAdjuster
 
 def calc_ic(pred, label):
     df = pd.DataFrame({'pred':pred, 'label':label})
@@ -50,7 +50,7 @@ class DailyBatchSamplerRandom(Sampler):
 
 
 class SequenceModel():
-    def __init__(self, n_epochs, lr, GPU=None, seed=None, train_stop_loss_thred=None, save_path = 'model/', save_prefix= '', benchmark = 'SH000300', market = 'csi300'):
+    def __init__(self, n_epochs, lr, GPU=None, seed=None, train_stop_loss_thred=None, save_path = 'model/', save_prefix= '', benchmark = 'SH000300', market = 'csi300', only_backtest = False):
         self.n_epochs = n_epochs
         self.lr = lr
         self.device = torch.device(f"cuda:{GPU}" if torch.cuda.is_available() else "cpu")
@@ -68,6 +68,7 @@ class SequenceModel():
 
         self.save_path = save_path
         self.save_prefix = save_prefix
+        self.only_backtest = only_backtest
 
 
     def init_model(self):
@@ -76,6 +77,13 @@ class SequenceModel():
 
         self.train_optimizer = optim.Adam(self.model.parameters(), self.lr)
         self.model.to(self.device)
+
+    def load_model(self, param_path):
+        try:
+            self.model.load_state_dict(torch.load(param_path, map_location=self.device))
+            self.fitted = True
+        except:
+            raise ValueError("Model not found.") 
 
     def loss_fn(self, pred, label):
         mask = ~torch.isnan(label)
@@ -96,7 +104,7 @@ class SequenceModel():
         print(self.dl_train.get_index())
         self.dl_valid = ds.prepare("valid", col_set=["feature", "label"], data_key=DataHandlerLP.DK_L)
         print(self.dl_valid.get_index())
-        self.dl_test = ds.prepare("test", col_set=["feature", "label"], data_key=DataHandlerLP.DK_L)
+        self.dl_test = ds.prepare("test", col_set=["feature", "label"], data_key=DataHandlerLP.DK_I)
         print(self.dl_test.get_index())
 
     def train_epoch(self, data_loader):
@@ -134,7 +142,7 @@ class SequenceModel():
             data = torch.squeeze(data, dim=0)
             feature = data[:, :, 0:-1].to(self.device)
             label = data[:, -1, -1].to(self.device)
-            assert not torch.any(torch.isnan(label))
+            # assert not torch.any(torch.isnan(label))
             pred = self.model(feature.float())
             loss = self.loss_fn(pred, label)
             losses.append(loss.item())
@@ -172,51 +180,51 @@ class SequenceModel():
         torch.save(best_param, f'{self.save_path}{self.save_prefix}master_{self.seed}.pkl')
 
     def backtest(self, predictions, labels):
-        # backtest_config = {
-        #     "strategy": {
-        #         "class": "TopkDropoutStrategy",
-        #         "module_path": "qlib.contrib.strategy",
-        #         "kwargs": {"signal": "<PRED>", "topk": 30, "n_drop": 30},
-        #     },
-        #     "backtest": {
-        #         "start_time": "2017-01-01",
-        #         "end_time": "2020-08-01",
-        #         "account": 100000000,
-        #         "benchmark": self.benchmark,
-        #         "exchange_kwargs": {
-        #             # "limit_threshold":  0.095,
-        #             "deal_price": "close",
-        #             # "open_cost": 0.0005,
-        #             # "close_cost": 0.0015,
-        #             # "min_cost": 5,
-        #         },
-        #     },
-        # }
         backtest_config = {
             "strategy": {
                 "class": "TopkDropoutStrategy",
                 "module_path": "qlib.contrib.strategy",
-                "kwargs": {"signal": "<PRED>", "topk": 50, "n_drop": 5},
+                "kwargs": {"signal": "<PRED>", "topk": 30, "n_drop": 30},
             },
             "backtest": {
-                "start_time": None,
-                "end_time": None,
+                "start_time": "2017-01-01",
+                "end_time": "2020-08-01",
                 "account": 100000000,
                 "benchmark": self.benchmark,
                 "exchange_kwargs": {
-                    "limit_threshold": 0.095,
+                    # "limit_threshold":  0.095,
                     "deal_price": "close",
-                    "open_cost": 0.0005,
-                    "close_cost": 0.0015,
-                    "min_cost": 5,
+                    # "open_cost": 0.0005,
+                    # "close_cost": 0.0015,
+                    # "min_cost": 5,
                 },
             },
         }
+        # backtest_config = {
+        #     "strategy": {
+        #         "class": "TopkDropoutStrategy",
+        #         "module_path": "qlib.contrib.strategy",
+        #         "kwargs": {"signal": "<PRED>", "topk": 50, "n_drop": 5},
+        #     },
+        #     "backtest": {
+        #         "start_time": None,
+        #         "end_time": None,
+        #         "account": 100000000,
+        #         "benchmark": self.benchmark,
+        #         "exchange_kwargs": {
+        #             "limit_threshold": 0.095,
+        #             "deal_price": "close",
+        #             "open_cost": 0.0005,
+        #             "close_cost": 0.0015,
+        #             "min_cost": 5,
+        #         },
+        #     },
+        # }
         rec = R.get_exp(experiment_name=self.infer_exp_name).list_recorders(rtype=Experiment.RT_L)[0]
-        mse = ((predictions.to_numpy() - labels.to_numpy()) ** 2).mean()
-        mae = np.abs(predictions.to_numpy() - labels.to_numpy()).mean()
-        print('mse:', mse, 'mae', mae)
-        rec.log_metrics(mse=mse, mae=mae)
+        # mse = ((predictions.to_numpy() - labels.to_numpy()) ** 2).mean()
+        # mae = np.abs(predictions.to_numpy() - labels.to_numpy()).mean()
+        # print('mse:', mse, 'mae', mae)
+        # rec.log_metrics(mse=mse, mae=mae)
         SigAnaRecord(recorder=rec, skip_existing=False).generate()
         PortAnaRecord(recorder=rec, config=backtest_config, skip_existing=True).generate()
         print(f"Your evaluation results can be found in the experiment named `{self.infer_exp_name}`.")
@@ -228,52 +236,53 @@ class SequenceModel():
         if not self.fitted:
             raise ValueError("model is not fitted yet!")
 
+        ta = TimeAdjuster(future=True)
+        segments = self.basic_config["dataset"]["kwargs"]["segments"]
+        test_begin, test_end = ta.align_seg(segments["test"])
+
         test_loader = self._init_data_loader(self.dl_test, shuffle=False, drop_last=False)
 
-        preds = []
-        labels = []
-        ic = []
-        ric = []
+        pred_all = []
         with R.start(experiment_name=self.infer_exp_name):
+
+            ds = init_instance_by_config(self.basic_config["dataset"], accept_types=Dataset)
+            label_all = ds.prepare(segments="test", col_set="label", data_key=DataHandlerLP.DK_R, only_label = True)
+            if isinstance(label_all, TSDataSampler):
+                label_all = pd.DataFrame({"label": label_all.data_arr[:-1][:, 0]}, index=label_all.data_index)
+                label_all = label_all.loc[test_begin:test_end]
+            label_all = label_all.dropna(axis=0)
+
             self.model.eval()
             for data in test_loader:
                 data = torch.squeeze(data, dim=0)
                 feature = data[:, :, 0:-1].to(self.device)
-                label = data[:, -1, -1].detach().numpy()
+                # label = data[:, -1, -1].detach().numpy()
                 with torch.no_grad():
                     pred = self.model(feature.float()).detach().cpu().numpy()
-                preds.append(pred.ravel())
-                labels.append(label.ravel())
+                pred_all.append(pred.ravel())
+                # labels.append(label.ravel())
 
-                daily_ic, daily_ric = calc_ic(pred, label)
-                ic.append(daily_ic)
-                ric.append(daily_ric)
 
-            predictions = pd.DataFrame(np.concatenate(preds), index=self.dl_test.get_index())
-            labels = pd.DataFrame(np.concatenate(labels), index=self.dl_test.get_index())
+            pred_all = pd.DataFrame(np.concatenate(pred_all), index=self.dl_test.get_index())
+            pred_all = pred_all.loc[label_all.index]
+            # labels = pd.DataFrame(np.concatenate(labels), index=self.dl_test.get_index())
 
-            mask = labels.isnull()
-            predictions = predictions[~mask]
-            labels = labels[~mask]
+            # mask = labels.isnull()
+            # predictions = predictions[~mask]
+            # labels = labels[~mask]
 
-            print(predictions.shape)
-            print(labels.shape)
-            print(predictions.isnull().sum())
-            print(labels.isnull().sum())
+            # print(predictions.shape)
+            # print(labels.shape)
+            # print(predictions.isnull().sum())
+            # print(labels.isnull().sum())
             
-            metrics = {
-                'IC': np.mean(ic),
-                'ICIR': np.mean(ic)/np.std(ic),
-                'RIC': np.mean(ric),
-                'RICIR': np.mean(ic)/np.std(ric)
-            }
             # print(metrics)
             # print(predictions)
             # print(predictions.shape)
             # print(labels)
             # print(labels.shape)
-            R.save_objects(**{"pred.pkl": predictions, "label.pkl": labels})
-        rec = self.backtest(predictions, labels)
+            R.save_objects(**{"pred.pkl": pred_all, "label.pkl": label_all})
+        rec = self.backtest(pred_all, label_all)
         return rec
 
         # return predictions, metrics
@@ -282,13 +291,13 @@ class SequenceModel():
         all_metrics = {
             k: []
             for k in [
-                'mse', 'mae',
+                # 'mse', 'mae',
                 "IC",
                 "ICIR",
                 "Rank IC",
                 "Rank ICIR",
-                "1day.excess_return_with_cost.annualized_return",
-                "1day.excess_return_with_cost.information_ratio",
+                "1day.excess_return_without_cost.annualized_return",
+                "1day.excess_return_without_cost.information_ratio",
                 # "1day.excess_return_with_cost.max_drawdown",
             ]
         }

@@ -300,6 +300,8 @@ class PromptMASTERModel(SequenceModel):
         with open("./workflow_config_master_Alpha158.yaml", 'r') as f:
             self.basic_config = yaml.safe_load(f)
         super(PromptMASTERModel, self).__init__(**kwargs)
+        self.basic_config['market'] = self.market
+        self.basic_config['benchmark'] = self.benchmark
         self.init_model()
 
     def init_model(self):
@@ -311,38 +313,44 @@ class PromptMASTERModel(SequenceModel):
                                    gate_input_start_index=self.gate_input_start_index,
                                    gate_input_end_index=self.gate_input_end_index, beta=self.beta,
                                    m_prompts = self.m_prompts, n_prompts = self.n_prompts, len_prompts = self.len_prompts, lamb = self.lamb)
-        self.load_model(f"../MASTER/model/{self.market}master_{self.seed}.pkl")
+        if self.only_backtest:
+            self.load_model(f'{self.save_path}/mprompts{self.m_prompts}_nprompts{self.n_prompts}_lenprompts{self.len_prompts}_lamb{self.lamb}/{self.save_prefix}promptmaster_{self.seed}.pkl')
+        # self.load_model(f"../MASTER/model/{self.market}master_{self.seed}.pkl")
         super(PromptMASTERModel, self).init_model()
 
     def run_all(self):
         all_metrics = {
             k: []
             for k in [
-                'mse', 'mae',
+                # 'mse', 'mae',
                 "IC",
                 "ICIR",
                 "Rank IC",
                 "Rank ICIR",
-                "1day.excess_return_with_cost.annualized_return",
-                "1day.excess_return_with_cost.information_ratio",
+                "1day.excess_return_without_cost.annualized_return",
+                "1day.excess_return_without_cost.information_ratio",
                 # "1day.excess_return_with_cost.max_drawdown",
             ]
         }
         self.load_data()
         seed = self.seed
-        for s in range(seed, seed+5):
+        for s in range(seed, seed+10):
             self.seed = s
             print("--------------------")
             print("seed: ", self.seed)
             self.init_model()
 
-            self.fit()
+            if not self.only_backtest:
+                self.fit()
             rec = self.predict()
             metrics = rec.list_metrics()
             print(metrics)
             for k in all_metrics.keys():
                 all_metrics[k].append(metrics[k])
             pp.pprint(all_metrics)
+        
+        for k in all_metrics.keys():
+            print(f"{k}: {np.mean(all_metrics[k])} +- {np.std(all_metrics[k])}")
 
 # class MASTERManager(SequenceModel):
     # def __init__(self, d_feat=158, d_model=256, t_nhead=4, s_nhead=2, T_dropout_rate=0.5, S_dropout_rate=0.5,

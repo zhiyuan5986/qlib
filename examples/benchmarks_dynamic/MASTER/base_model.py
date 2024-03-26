@@ -69,6 +69,7 @@ class MetaModelRolling(MetaTaskModel):
         save_prefix= '',
         benchmark = 'SH000300', 
         market = 'csi300',
+        only_backtest = False,
         **kwargs
     ):
         self.n_epochs = n_epochs
@@ -79,14 +80,19 @@ class MetaModelRolling(MetaTaskModel):
         self.train_stop_loss_thred = train_stop_loss_thred
         self.begin_valid_epoch = begin_valid_epoch
         self.over_patience = over_patience
+        self.save_path = save_path
+        self.save_prefix = save_prefix
         self.benchmark = benchmark
         self.market = market
+        self.only_backtest = only_backtest
         if self.seed is not None:
             np.random.seed(self.seed)
             torch.manual_seed(self.seed)
         self.fitted = False
         with open("./workflow_config_master_Alpha158.yaml", 'r') as f:
             self.basic_config = yaml.safe_load(f)
+        self.basic_config['market'] = self.market
+        self.basic_config['benchmark'] = self.benchmark
 
         self.infer_exp_name = self.meta_exp_name+"_backtest"
 
@@ -293,6 +299,7 @@ class MetaModelRolling(MetaTaskModel):
                 label = data[:, -1, -1].detach().numpy()
 
                 pred = self.framework(feature.float()).detach().cpu().numpy()
+                # assert np.sum(pred == np.nan) == 0
 
                 preds.append(pred)
                 labels.append(label)
@@ -324,6 +331,7 @@ class MetaModelRolling(MetaTaskModel):
             pred, label = self.run_task(meta_input)
             if phase != "train":
                 test_idx = meta_input["test_idx"]
+                # print(pred, test_idx)
                 pred_y_all.append(
                     pd.DataFrame(
                         {
@@ -372,40 +380,61 @@ class MetaModelRolling(MetaTaskModel):
                 break
         self.fitted = True
         self.framework.load_state_dict(best_checkpoint)
+        torch.save(best_checkpoint, f'{self.save_path}{self.save_prefix}master_{self.seed}.pkl')
     
-    def backtest(self, pred_y_all):
+    def backtest(self):
+        # backtest_config = {
+        #     "strategy": {
+        #         "class": "TopkDropoutStrategy",
+        #         "module_path": "qlib.contrib.strategy",
+        #         "kwargs": {"signal": "<PRED>", "topk": 50, "n_drop": 5},
+        #     },
+        #     "backtest": {
+        #         "start_time": None,
+        #         "end_time": None,
+        #         "account": 100000000,
+        #         "benchmark": self.benchmark,
+        #         "exchange_kwargs": {
+        #             "limit_threshold": None if self.data_dir == "us_data" else 0.095,
+        #             "deal_price": "close",
+        #             "open_cost": 0.0005,
+        #             "close_cost": 0.0015,
+        #             "min_cost": 5,
+        #         },
+        #     },
+        # }
         backtest_config = {
             "strategy": {
                 "class": "TopkDropoutStrategy",
                 "module_path": "qlib.contrib.strategy",
-                "kwargs": {"signal": "<PRED>", "topk": 50, "n_drop": 5},
+                "kwargs": {"signal": "<PRED>", "topk": 30, "n_drop": 30},
             },
             "backtest": {
-                "start_time": None,
-                "end_time": None,
+                "start_time": "2017-01-01",
+                "end_time": "2020-08-01",
                 "account": 100000000,
                 "benchmark": self.benchmark,
                 "exchange_kwargs": {
-                    "limit_threshold": None if self.data_dir == "us_data" else 0.095,
+                    # "limit_threshold":  0.095,
                     "deal_price": "close",
-                    "open_cost": 0.0005,
-                    "close_cost": 0.0015,
-                    "min_cost": 5,
+                    # "open_cost": 0.0005,
+                    # "close_cost": 0.0015,
+                    # "min_cost": 5,
                 },
             },
         }
         rec = R.get_exp(experiment_name=self.infer_exp_name).list_recorders(rtype=Experiment.RT_L)[0]
-        mse = ((pred_y_all['pred'].to_numpy() - pred_y_all['label'].to_numpy()) ** 2).mean()
-        mae = np.abs(pred_y_all['pred'].to_numpy() - pred_y_all['label'].to_numpy()).mean()
-        print('mse:', mse, 'mae', mae)
-        rec.log_metrics(mse=mse, mae=mae)
+        # mse = ((pred_y_all['pred'].to_numpy() - pred_y_all['label'].to_numpy()) ** 2).mean()
+        # mae = np.abs(pred_y_all['pred'].to_numpy() - pred_y_all['label'].to_numpy()).mean()
+        # print('mse:', mse, 'mae', mae)
+        # rec.log_metrics(mse=mse, mae=mae)
         SigAnaRecord(recorder=rec, skip_existing=True).generate()
         PortAnaRecord(recorder=rec, config=backtest_config, skip_existing=True).generate()
         print(f"Your evaluation results can be found in the experiment named `{self.infer_exp_name}`.")
         return rec
 
     def inference(self):
-        meta_tasks_test = self.md_offline.prepare_tasks("test")
+        meta_tasks_test = self.md_online.prepare_tasks("test")
         self.framework.train()
         pred_y_all, ic = self.run_epoch("online", meta_tasks_test, tqdm_show=True)
         return pred_y_all, ic 
@@ -417,12 +446,24 @@ class MetaModelRolling(MetaTaskModel):
         print('Test segment:', test_begin, test_end)
 
         with R.start(experiment_name=self.infer_exp_name):
+
+            ds = init_instance_by_config(self.basic_config["dataset"], accept_types=Dataset)
+            label_all = ds.prepare(segments="test", col_set="label", data_key=DataHandlerLP.DK_R, only_label = True)
+            if isinstance(label_all, TSDataSampler):
+                label_all = pd.DataFrame({"label": label_all.data_arr[:-1][:, 0]}, index=label_all.data_index)
+                label_all = label_all.loc[test_begin:test_end]
+            label_all = label_all.dropna(axis=0)
+
             pred_y_all, ic = self.inference()
+            # print(pred_y_all)
+            pred_y_all = pred_y_all[['pred']]
+            # print(pred_y_all)
+            pred_y_all = pred_y_all.loc[label_all.index]
             # print('lr_model:', meta_model.lr_model, 'lr_ma:', meta_model.framework.opt.param_groups[0]['lr'],
             #       'lr_da:', meta_model.opt.param_groups[0]['lr'])
             print('lr:', self.lr)
-            R.save_objects(**{"pred.pkl": pred_y_all[["pred"]], "label.pkl": pred_y_all[["label"]]})
-        rec = self.backtest(pred_y_all)
+            R.save_objects(**{"pred.pkl": pred_y_all, "label.pkl": label_all})
+        rec = self.backtest()
         return rec
 
 
@@ -645,19 +686,19 @@ class SequenceModel():
         all_metrics = {
             k: []
             for k in [
-                'mse', 'mae',
+                # 'mse', 'mae',
                 "IC",
                 "ICIR",
                 "Rank IC",
                 "Rank ICIR",
-                "1day.excess_return_with_cost.annualized_return",
-                "1day.excess_return_with_cost.information_ratio",
+                "1day.excess_return_without_cost.annualized_return",
+                "1day.excess_return_without_cost.information_ratio",
                 # "1day.excess_return_with_cost.max_drawdown",
             ]
         }
         self.load_data()
-        self.load_model(param_path=f"../../benchmarks/MASTER/model/csi300master_{self.seed}.pkl")
-        # self.fit()
+        # self.load_model(param_path=f"../../benchmarks/MASTER/model/csi300master_{self.seed}.pkl")
+        self.fit()
         rec = self.predict()
         metrics = rec.list_metrics()
         print(metrics)

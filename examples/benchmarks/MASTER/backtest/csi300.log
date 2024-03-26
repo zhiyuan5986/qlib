@@ -1,0 +1,6 @@
+[19800:MainThread](2024-03-25 11:22:25,096) INFO - qlib.Initialization - [config.py:416] - default_conf: client.
+[19800:MainThread](2024-03-25 11:22:25,101) INFO - qlib.Initialization - [__init__.py:74] - qlib successfully initialized based on client settings.
+[19800:MainThread](2024-03-25 11:22:25,102) INFO - qlib.Initialization - [__init__.py:76] - data_path={'__DEFAULT_FREQ': PosixPath('/home/liuqiaoan/.qlib/qlib_data/cn_data')}
+[19800:MainThread](2024-03-25 11:22:53,020) INFO - qlib.timer - [log.py:127] - Time cost: 23.891s | Loading data Done
+/home/liuqiaoan/miniconda3/envs/qlib-without-qlib/lib/python3.8/site-packages/numpy/lib/nanfunctions.py:1095: RuntimeWarning: All-NaN slice encountered
+  result = np.apply_along_axis(_nanmedian1d, axis, a, overwrite_input)
