@@ -4,8 +4,8 @@ fi
 if [ ! -d "./backtest" ]; then
     mkdir ./backtest
 fi
-universe=csi500
-only_backtest=false
+universe=csi300
+only_backtest=true
 if $only_backtest; then
     nohup python -u main.py --universe $universe --only_backtest > ./backtest/${universe}.log 2>&1 &
 else
