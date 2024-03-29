@@ -37,9 +37,11 @@ from examples.benchmarks.benchmark import Benchmark
 class Incremental:
     """
     Example:
-    python -u main.py run_all --forecast_model GRU --market csi300 --data_dir crowd_data --rank_label False \
-    --first_order True --adapt_x True --adapt_y True --num_head 8 --tau 10 \
-    --lr 0.001 --lr_da 0.01 --online_lr "{'lr': 0.001, 'lr_da': 0.001, 'lr_ma': 0.001}"
+        .. code-block:: python
+
+            python -u main.py run_all --forecast_model GRU --market csi300 --data_dir crowd_data --rank_label False \
+            --first_order True --adapt_x True --adapt_y True --num_head 8 --tau 10 \
+            --lr 0.001 --lr_da 0.01 --online_lr "{'lr': 0.001, 'lr_da': 0.001, 'lr_ma': 0.001}"
     """
 
     def __init__(
