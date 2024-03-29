@@ -6,6 +6,10 @@
 [![Documentation Status](https://readthedocs.org/projects/qlib/badge/?version=latest)](https://qlib.readthedocs.io/en/latest/?badge=latest)
 [![License](https://img.shields.io/pypi/l/pyqlib)](LICENSE)
 [![Join the chat at https://gitter.im/Microsoft/qlib](https://badges.gitter.im/Microsoft/qlib.svg)](https://gitter.im/Microsoft/qlib?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+![Stars](https://img.shields.io/github/stars/SJTU-Quant/qlib)
+![Forks](https://img.shields.io/github/forks/SJTU-Quant/qlib)
+
+> See source codes of $\text{\color{red}{DoubleAdapt}}$ in [examples/benchmarks_dynamic/incremental](https://github.com/SJTU-Quant/qlib/tree/main/examples/benchmarks_dynamic/incremental)!
 
 ## :newspaper: **What's NEW!** &nbsp;   :sparkling_heart: 
 Released features in our forked repo
@@ -144,7 +148,7 @@ This table demonstrates the supported Python version of `Qlib`:
 | Python 3.9    | :x:                   | :heavy_check_mark:   | :x: |
 
 **Note**: 
-1. **Conda** is suggested for managing your Python environment.
+1. **Conda** is suggested for managing your Python environment. In some cases, using Python outside of a `conda` environment may result in missing header files, causing the installation failure of certain packages.
 1. Please pay attention that installing cython in Python 3.6 will raise some error when installing ``Qlib`` from source. If users use Python 3.6 on their machines, it is recommended to *upgrade* Python to version 3.7 or use `conda`'s Python to install ``Qlib`` from source.
 1. For Python 3.9, `Qlib` supports running workflows such as training models, doing backtest and plot most of the related figures (those included in [notebook](examples/workflow_by_code.ipynb)). However, plotting for the *model performance* is not supported for now and we will fix this when the dependent packages are upgraded in the future.
 1. `Qlib`Requires `tables` package, `hdf5` in tables does not support python3.9. 
@@ -326,7 +330,7 @@ Qlib provides a tool named `qrun` to run the whole workflow automatically (inclu
 The automatic workflow may not suit the research workflow of all Quant researchers. To support a flexible Quant research workflow, Qlib also provides a modularized interface to allow researchers to build their own workflow by code. [Here](examples/workflow_by_code.ipynb) is a demo for customized Quant research workflow by code.
 
 # Main Challenges & Solutions in Quant Research
-Quant investment is an very unique scenario with lots of key challenges to be solved.
+Quant investment is a very unique scenario with lots of key challenges to be solved.
 Currently, Qlib provides some solutions for several of them.
 
 ## Forecasting: Finding Valuable Signals/Patterns

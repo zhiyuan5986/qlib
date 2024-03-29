@@ -209,7 +209,7 @@ class Benchmark:
             task["dataset"]["kwargs"]["segments"]["valid"] = seg[0], pd.Timestamp(self.valid_end)
 
         if self.test_start is not None:
-            seg = task["dataset"]["kwargs"]["segments"]["train"]
+            seg = task["dataset"]["kwargs"]["segments"]["test"]
             task["dataset"]["kwargs"]["segments"]["test"] = pd.Timestamp(self.test_start), seg[1]
 
         if self.test_end is not None:
