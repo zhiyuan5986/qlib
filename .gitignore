@@ -49,3 +49,5 @@ tags
 
 ./pretrain
 .idea/
+
+*.log
