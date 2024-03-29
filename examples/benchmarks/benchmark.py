@@ -42,6 +42,9 @@ class Benchmark:
                  init_data=True,
                  h_path: Optional[str] = None,
                  train_start: Optional[str] = None,
+                 train_end: Optional[str] = None,
+                 valid_start: Optional[str] = None,
+                 valid_end: Optional[str] = None,
                  test_start: Optional[str] = None,
                  test_end: Optional[str] = None,
                  task_ext_conf: Optional[dict] = None,) -> None:
@@ -60,6 +63,9 @@ class Benchmark:
         self.model_type = model_type
         self.h_path = h_path
         self.train_start = train_start
+        self.train_end = train_end
+        self.valid_start = valid_start
+        self.valid_end = valid_end
         self.test_start = test_start
         self.test_end = test_end
         self.task_ext_conf = task_ext_conf
@@ -125,7 +131,7 @@ class Benchmark:
             )
             filename = "alpha{}_handler_horizon{}.pkl".format(self.alpha, self.horizon)
         filename = f"{self.data_dir}_{self.market}_rank{self.rank_label}_{filename}"
-        h_path = DIRNAME.parent / "benchmarks_dynamic" / "baseline" / filename
+        h_path = DIRNAME / filename
 
         if self.h_path is not None:
             h_path = Path(self.h_path)
@@ -151,6 +157,8 @@ class Benchmark:
         if conf["task"]["model"]["class"] == "TransformerModel":
             conf["task"]["model"]["kwargs"]["dim_feedforward"] = 32
             conf["task"]["model"]["kwargs"]["reg"] = 0
+        if conf["task"]["model"]["class"] == "DNNModelPytorch":
+            conf["task"]["model"]["kwargs"]["scheduler"] = None
 
         task = conf["task"]
 
@@ -187,6 +195,18 @@ class Benchmark:
         if self.train_start is not None:
             seg = task["dataset"]["kwargs"]["segments"]["train"]
             task["dataset"]["kwargs"]["segments"]["train"] = pd.Timestamp(self.train_start), seg[1]
+
+        if self.train_end is not None:
+            seg = task["dataset"]["kwargs"]["segments"]["train"]
+            task["dataset"]["kwargs"]["segments"]["test"] = seg[0], pd.Timestamp(self.train_end)
+
+        if self.valid_start is not None:
+            seg = task["dataset"]["kwargs"]["segments"]["valid"]
+            task["dataset"]["kwargs"]["segments"]["valid"] = pd.Timestamp(self.valid_start), seg[1]
+
+        if self.valid_end is not None:
+            seg = task["dataset"]["kwargs"]["segments"]["valid"]
+            task["dataset"]["kwargs"]["segments"]["valid"] = seg[0], pd.Timestamp(self.valid_end)
 
         if self.test_start is not None:
             seg = task["dataset"]["kwargs"]["segments"]["train"]
