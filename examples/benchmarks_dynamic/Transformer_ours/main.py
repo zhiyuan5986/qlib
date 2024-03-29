@@ -21,7 +21,7 @@ from qlib.workflow.record_temp import SigAnaRecord, PortAnaRecord
 import torch
 from torch.utils.data import DataLoader, Sampler
 
-from master import MASTERModel
+from transformer_ts_dynamic import TransformerModel
 # import logging
 # logging.basicConfig()
 
@@ -70,12 +70,13 @@ from master import MASTERModel
 
     
     # def test(self):
-    
 def parse_args():
     """parse arguments. You can add other arguments if needed."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--universe", type=str, default='csi300',
         help="which market to choose")
+    parser.add_argument("--online_lr", type=float, default=1e-4,
+        help="online training learning rate")
     # parser.add_argument("--only_backtest", type=bool, default=False,
     #     help="whether only backtest or not")
     parser.add_argument("--only_backtest", action="store_true", help="whether only backtest or not")
@@ -84,13 +85,12 @@ def parse_args():
 if __name__ == '__main__':
     args = parse_args()
     qlib.init(provider_uri='~/.qlib/qlib_data/cn_data', region='cn')
-    d_feat = 158
-    d_model = 256
-    t_nhead = 4
-    s_nhead = 2
+    d_feat = 20
+    d_model = 64
     dropout = 0.5
-    gate_input_start_index=158
-    gate_input_end_index = 221
+    nhead = 2
+    num_layers = 2
+    dropout = 0
 
     universe = args.universe # or 'csi500'
     if universe == 'csi300':
@@ -100,25 +100,22 @@ if __name__ == '__main__':
         beta = 5
         benchmark = 'SH000905'
 
-    n_epoch = 40
-    lr = 8e-6
-    GPU = 0
+    n_epochs = 40
+    lr = 1e-5
+    GPU = 3
     seed = 0
     train_stop_loss_thred = 0.95
+    online_lr = args.online_lr
     only_backtest = args.only_backtest
 
-    basic_config = {
-
-    }
-
-    master = MASTERModel(
-        d_feat = d_feat, d_model = d_model, t_nhead = t_nhead, s_nhead = s_nhead, T_dropout_rate=dropout, S_dropout_rate=dropout,
-        beta=beta, gate_input_end_index=gate_input_end_index, gate_input_start_index=gate_input_start_index,
-        n_epochs=n_epoch, lr = lr, GPU = GPU, seed = seed, train_stop_loss_thred = train_stop_loss_thred,
-        save_path='model/', save_prefix=universe, benchmark = benchmark, market = universe, only_backtest = only_backtest
+    transformer = TransformerModel(
+        d_feat = d_feat, d_model = d_model, nhead = nhead, num_layers = num_layers, dropout = dropout,
+        n_epochs=n_epochs, lr = lr, GPU = GPU, seed = seed, train_stop_loss_thred = train_stop_loss_thred,
+        save_path='model/', save_prefix=universe, benchmark = benchmark, market = universe,
+        online_lr = {'lr': online_lr}, only_backtest = only_backtest
     )
 
-    master.run_all()
+    transformer.run_all()
 
     # print(sys.argv)
     # fire.Fire(MASTERModel)

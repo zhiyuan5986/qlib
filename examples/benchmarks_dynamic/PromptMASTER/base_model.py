@@ -256,8 +256,20 @@ class MetaModelRolling(MetaTaskModel):
             to_tensor=False
         )
 
+        ta = TimeAdjuster(future=True)
+        segments = self.basic_config["dataset"]["kwargs"]["segments"]
+        test_begin, test_end = ta.align_seg(segments["test"])
+        print('Test segment:', test_begin, test_end)
+        ds = init_instance_by_config(self.basic_config["dataset"], accept_types=Dataset)
+        label_all = ds.prepare(segments="test", col_set="label", data_key=DataHandlerLP.DK_R, only_label = True)
+        if isinstance(label_all, TSDataSampler):
+            label_all = pd.DataFrame({"label": label_all.data_arr[:-1][:, 0]}, index=label_all.data_index)
+            label_all = label_all.loc[test_begin:test_end]
+        label_all = label_all.dropna(axis=0)
+
         self.md_offline = md_offline
         self.md_online = md_online
+        self.label_all = label_all
 
     def _init_data_loader(self, data, shuffle=True, drop_last=True):
         sampler = DailyBatchSamplerRandom(data, shuffle)
@@ -462,27 +474,14 @@ class MetaModelRolling(MetaTaskModel):
         return pred_y_all, ic 
 
     def online_training(self):
-        ta = TimeAdjuster(future=True)
-        segments = self.basic_config["dataset"]["kwargs"]["segments"]
-        test_begin, test_end = ta.align_seg(segments["test"])
-        print('Test segment:', test_begin, test_end)
-
         with R.start(experiment_name=self.infer_exp_name):
-
-            ds = init_instance_by_config(self.basic_config["dataset"], accept_types=Dataset)
-            label_all = ds.prepare(segments="test", col_set="label", data_key=DataHandlerLP.DK_R, only_label = True)
-            if isinstance(label_all, TSDataSampler):
-                label_all = pd.DataFrame({"label": label_all.data_arr[:-1][:, 0]}, index=label_all.data_index)
-                label_all = label_all.loc[test_begin:test_end]
-            label_all = label_all.dropna(axis=0)
-
             pred_y_all, ic = self.inference()
             pred_y_all = pred_y_all[['pred']]
-            pred_y_all = pred_y_all.loc[label_all.index]
+            pred_y_all = pred_y_all.loc[self.label_all.index]
             # print('lr_model:', meta_model.lr_model, 'lr_ma:', meta_model.model.opt.param_groups[0]['lr'],
             #       'lr_da:', meta_model.opt.param_groups[0]['lr'])
             print('lr:', self.lr)
-            R.save_objects(**{"pred.pkl": pred_y_all, "label.pkl": label_all})
+            R.save_objects(**{"pred.pkl": pred_y_all, "label.pkl": self.label_all})
         rec = self.backtest()
         return rec
 

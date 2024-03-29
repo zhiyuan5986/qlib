@@ -107,6 +107,18 @@ class SequenceModel():
         self.dl_test = ds.prepare("test", col_set=["feature", "label"], data_key=DataHandlerLP.DK_I)
         print(self.dl_test.get_index())
 
+        ta = TimeAdjuster(future=True)
+        segments = self.basic_config["dataset"]["kwargs"]["segments"]
+        test_begin, test_end = ta.align_seg(segments["test"])
+        print('Test segment:', test_begin, test_end)
+        ds = init_instance_by_config(self.basic_config["dataset"], accept_types=Dataset)
+        label_all = ds.prepare(segments="test", col_set="label", data_key=DataHandlerLP.DK_R, only_label = True)
+        if isinstance(label_all, TSDataSampler):
+            label_all = pd.DataFrame({"label": label_all.data_arr[:-1][:, 0]}, index=label_all.data_index)
+            label_all = label_all.loc[test_begin:test_end]
+        self.label_all = label_all.dropna(axis=0)
+
+
     def train_epoch(self, data_loader):
         self.model.train()
         losses = []
@@ -179,7 +191,7 @@ class SequenceModel():
                 break
         torch.save(best_param, f'{self.save_path}{self.save_prefix}master_{self.seed}.pkl')
 
-    def backtest(self, predictions, labels):
+    def backtest(self):
         backtest_config = {
             "strategy": {
                 "class": "TopkDropoutStrategy",
@@ -236,21 +248,10 @@ class SequenceModel():
         if not self.fitted:
             raise ValueError("model is not fitted yet!")
 
-        ta = TimeAdjuster(future=True)
-        segments = self.basic_config["dataset"]["kwargs"]["segments"]
-        test_begin, test_end = ta.align_seg(segments["test"])
-
         test_loader = self._init_data_loader(self.dl_test, shuffle=False, drop_last=False)
 
         pred_all = []
         with R.start(experiment_name=self.infer_exp_name):
-
-            ds = init_instance_by_config(self.basic_config["dataset"], accept_types=Dataset)
-            label_all = ds.prepare(segments="test", col_set="label", data_key=DataHandlerLP.DK_R, only_label = True)
-            if isinstance(label_all, TSDataSampler):
-                label_all = pd.DataFrame({"label": label_all.data_arr[:-1][:, 0]}, index=label_all.data_index)
-                label_all = label_all.loc[test_begin:test_end]
-            label_all = label_all.dropna(axis=0)
 
             self.model.eval()
             for data in test_loader:
@@ -264,7 +265,7 @@ class SequenceModel():
 
 
             pred_all = pd.DataFrame(np.concatenate(pred_all), index=self.dl_test.get_index())
-            pred_all = pred_all.loc[label_all.index]
+            pred_all = pred_all.loc[self.label_all.index]
             # labels = pd.DataFrame(np.concatenate(labels), index=self.dl_test.get_index())
 
             # mask = labels.isnull()
@@ -281,8 +282,8 @@ class SequenceModel():
             # print(predictions.shape)
             # print(labels)
             # print(labels.shape)
-            R.save_objects(**{"pred.pkl": pred_all, "label.pkl": label_all})
-        rec = self.backtest(pred_all, label_all)
+            R.save_objects(**{"pred.pkl": pred_all, "label.pkl": self.label_all})
+        rec = self.backtest()
         return rec
 
         # return predictions, metrics

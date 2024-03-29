@@ -90,7 +90,7 @@ class MetaModelRolling(MetaTaskModel):
             np.random.seed(self.seed)
             torch.manual_seed(self.seed)
         self.fitted = False
-        with open("./workflow_config_master_Alpha158.yaml", 'r') as f:
+        with open("./workflow_config_transformer_Alpha158.yaml", 'r') as f:
             self.basic_config = yaml.safe_load(f)
         self.basic_config['market'] = self.market
         self.basic_config['benchmark'] = self.benchmark
@@ -99,11 +99,13 @@ class MetaModelRolling(MetaTaskModel):
 
         self.framework = None
         self.train_optimizer = None
+
         if not os.path.exists(self.save_path):
-            os.makedirs(self.save_path)
+            os.mkdir(self.save_path)
+
     @property
     def meta_exp_name(self):
-        return f"{self.market}_MASTER_alpha158_seed{self.seed}"
+        return f"{self.market}_transformer_alpha158_seed{self.seed}"
 
     def load_model(self, param_path):
         try:
@@ -255,7 +257,7 @@ class MetaModelRolling(MetaTaskModel):
         test_begin, test_end = ta.align_seg(segments["test"])
         print('Test segment:', test_begin, test_end)
         ds = init_instance_by_config(self.basic_config["dataset"], accept_types=Dataset)
-        label_all = ds.prepare(segments="test", col_set="label", data_key=DataHandlerLP.DK_R, only_label = True)
+        label_all = ds.prepare(segments="test", col_set="label", data_key=DataHandlerLP.DK_R)
         if isinstance(label_all, TSDataSampler):
             label_all = pd.DataFrame({"label": label_all.data_arr[:-1][:, 0]}, index=label_all.data_index)
             label_all = label_all.loc[test_begin:test_end]
@@ -273,7 +275,6 @@ class MetaModelRolling(MetaTaskModel):
     def run_task(self, meta_input):
         """ A single task for """
 
-        # MASTER
         # self.train_optimizer.zero_grad()
         train_loader = self._init_data_loader(meta_input['d_train'], shuffle=True, drop_last=True)
         test_loader = self._init_data_loader(meta_input['d_test'], shuffle=False, drop_last=True)
@@ -289,7 +290,7 @@ class MetaModelRolling(MetaTaskModel):
             data.shape: (N, T, F)
             N - number of stocks
             T - length of lookback_window, 8
-            F - 158 factors + 63 market information + 1 label           
+            F - 20 selected factors + 1 label           
             '''
             feature = data[:, :, 0:-1].to(self.device)
             label = data[:, -1, -1].to(self.device)
@@ -394,7 +395,7 @@ class MetaModelRolling(MetaTaskModel):
                 break
         self.fitted = True
         self.framework.load_state_dict(best_checkpoint)
-        torch.save(best_checkpoint, f'{self.save_path}{self.save_prefix}master_{self.seed}.pkl')
+        torch.save(best_checkpoint, f'{self.save_path}{self.save_prefix}transformer_{self.seed}.pkl')
     
     def backtest(self):
         # backtest_config = {
