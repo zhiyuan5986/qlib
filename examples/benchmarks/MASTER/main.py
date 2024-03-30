@@ -46,7 +46,7 @@ if __name__ == "__main__":
         h = init_instance_by_config(h_conf)
         h.to_pickle(h_path, dump_all=True)
         print('Save preprocessed data to', h_path)
-    config["dataset"]["kwargs"]["handler"] = f"file://{h_path}"
+    config["task"]["dataset"]["kwargs"]["handler"] = f"file://{h_path}"
     dataset = init_instance_by_config(config['task']["dataset"])
 
     ###################################
