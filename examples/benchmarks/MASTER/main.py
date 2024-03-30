@@ -15,15 +15,13 @@ sys.path.append(str(DIRNAME.parent.parent.parent))
 
 import qlib
 from qlib.constant import REG_CN
-from qlib.utils import init_instance_by_config, flatten_dict
+from qlib.utils import init_instance_by_config
 from qlib.workflow import R
 from qlib.workflow.record_temp import SignalRecord, PortAnaRecord, SigAnaRecord
 from qlib.tests.data import GetData
-from qlib.tests.config import CSI300_BENCH, CSI300_GBDT_TASK
 import yaml
 import argparse
 import os
-import torch
 import pprint as pp
 import numpy as np
 

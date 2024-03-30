@@ -354,9 +354,25 @@ class MTSDatasetH(DatasetH):
             }
 
         # end indice loop
+
 ###################################################################################
 # lqa: for MASTER
 class marketDataHandler(DataHandlerLP):
+    """Market Data Handler for MASTER (see `examples/benchmarks/MASTER`)
+
+    Args:
+        instruments (str): instrument list
+        start_time (str): start time
+        end_time (str): end time
+        freq (str): data frequency
+        infer_processors (list): inference processors
+        learn_processors (list): learning processors
+        fit_start_time (str): fit start time
+        fit_end_time (str): fit end time
+        process_type (str): process type
+        filter_pipe (list): filter pipe
+        inst_processors (list): instrument processors
+    """
     def __init__(
         self,
         instruments="csi300",
@@ -399,6 +415,10 @@ class marketDataHandler(DataHandlerLP):
 
     @staticmethod
     def get_feature_config():
+        """
+        Get market feature (63-dimensional), which are csi100 index, csi300 index, csi500 index. 
+        The first list is the name to be shown for the feature, and the second list is the feature to fecth.
+        """
         return (
             ['Mask($close/Ref($close,1)-1, "sh000300")', 'Mask(Mean($close/Ref($close,1)-1,5), "sh000300")', 'Mask(Std($close/Ref($close,1)-1,5), "sh000300")', 'Mask(Mean($volume,5)/$volume, "sh000300")', 'Mask(Std($volume,5)/$volume, "sh000300")', 'Mask(Mean($close/Ref($close,1)-1,10), "sh000300")', 'Mask(Std($close/Ref($close,1)-1,10), "sh000300")', 'Mask(Mean($volume,10)/$volume, "sh000300")', 'Mask(Std($volume,10)/$volume, "sh000300")', 'Mask(Mean($close/Ref($close,1)-1,20), "sh000300")', 'Mask(Std($close/Ref($close,1)-1,20), "sh000300")', 'Mask(Mean($volume,20)/$volume, "sh000300")', 'Mask(Std($volume,20)/$volume, "sh000300")', 'Mask(Mean($close/Ref($close,1)-1,30), "sh000300")', 'Mask(Std($close/Ref($close,1)-1,30), "sh000300")', 'Mask(Mean($volume,30)/$volume, "sh000300")', 'Mask(Std($volume,30)/$volume, "sh000300")', 'Mask(Mean($close/Ref($close,1)-1,60), "sh000300")', 'Mask(Std($close/Ref($close,1)-1,60), "sh000300")', 'Mask(Mean($volume,60)/$volume, "sh000300")', 'Mask(Std($volume,60)/$volume, "sh000300")',
                 'Mask($close/Ref($close,1)-1, "sh000903")', 'Mask(Mean($close/Ref($close,1)-1,5), "sh000903")', 'Mask(Std($close/Ref($close,1)-1,5), "sh000903")', 'Mask(Mean($volume,5)/$volume, "sh000903")', 'Mask(Std($volume,5)/$volume, "sh000903")', 'Mask(Mean($close/Ref($close,1)-1,10), "sh000903")', 'Mask(Std($close/Ref($close,1)-1,10), "sh000903")', 'Mask(Mean($volume,10)/$volume, "sh000903")', 'Mask(Std($volume,10)/$volume, "sh000903")', 'Mask(Mean($close/Ref($close,1)-1,20), "sh000903")', 'Mask(Std($close/Ref($close,1)-1,20), "sh000903")', 'Mask(Mean($volume,20)/$volume, "sh000903")', 'Mask(Std($volume,20)/$volume, "sh000903")', 'Mask(Mean($close/Ref($close,1)-1,30), "sh000903")', 'Mask(Std($close/Ref($close,1)-1,30), "sh000903")', 'Mask(Mean($volume,30)/$volume, "sh000903")', 'Mask(Std($volume,30)/$volume, "sh000903")', 'Mask(Mean($close/Ref($close,1)-1,60), "sh000903")', 'Mask(Std($close/Ref($close,1)-1,60), "sh000903")', 'Mask(Mean($volume,60)/$volume, "sh000903")', 'Mask(Std($volume,60)/$volume, "sh000903")',
@@ -409,6 +429,12 @@ class marketDataHandler(DataHandlerLP):
         )
 
 class MASTERTSDatasetH(TSDatasetH):
+    """
+    MASTER Time Series Dataset with Handler
+
+    Args:
+        market_data_handler_config (dict): market data handler config
+    """
     def __init__(
         self,
         market_data_handler_config = Dict,
@@ -438,17 +464,12 @@ class MASTERTSDatasetH(TSDatasetH):
         data = super(TSDatasetH, self)._prepare_seg(ext_slice, **kwargs)
 
         ############################## Add market information ###########################
+        # If we only need label for testing, we do not need to add market information
         if not only_label:
             marketData = self.get_market_information(ext_slice)
             cols = pd.MultiIndex.from_tuples([("feature", feature) for feature in marketData.columns])
             marketData = pd.DataFrame(marketData.values, columns = cols, index = marketData.index)
-            # print(marketData.index)
-            # print(marketData.columns)
-            # print(data.index)
-            # print(data.columns)
             data = data.iloc[:,:-1].join(marketData).join(data.iloc[:,-1])
-            # print(data.columns)
-            # print(data.shape)
         #################################################################################
         flt_kwargs = copy.deepcopy(kwargs)
         if flt_col is not None:
