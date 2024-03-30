@@ -194,7 +194,14 @@ class Fillna(Processor):
             # So we use numpy to accelerate filling values
             nan_select = np.isnan(df.values)
             nan_select[:, ~df.columns.isin(cols)] = False
-            df.values[nan_select] = self.fill_value
+
+            # FIXME: For pandas==2.0.3, the following code will not set the nan value to be self.fill_value
+            # df.values[nan_select] = self.fill_value
+
+            # lqa's method
+            value_tmp = df.values
+            value_tmp[nan_select] = self.fill_value
+            df = pd.DataFrame(value_tmp, columns = df.columns, index = df.index)
         return df
 
 
