@@ -6,7 +6,7 @@ paper: [MASTER: Market-Guided Stock Transformer for Stock Price Forecasting](htt
 codes: [https://github.com/SJTU-Quant/MASTER](https://github.com/SJTU-Quant/MASTER)
 
 ## run
-You can directly use the bash script to run the codes (you can set the `universe` and `only_backtest` flag in `run.sh`), this `main.py` will test the model with 10 random seeds:
+You can directly use the bash script to run the codes (you can set the `universe` and `only_backtest` flag in `run.sh`), this `main.py` will test the model with 3 random seeds:
 ```
 bash run.sh
 ```
