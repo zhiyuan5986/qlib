@@ -41,7 +41,8 @@ if __name__ == "__main__":
         config = yaml.safe_load(f)
 
     h_conf = config["task"]["dataset"]["kwargs"]["handler"]
-    h_path = DIRNAME / f'handler_{config["dataset"]["kwargs"]["segments"]["train"]}_{config["dataset"]["kwargs"]["segments"]["test"]}.pkl'
+    h_path = DIRNAME / f'handler_{config["task"]["dataset"]["kwargs"]["segments"]["train"]}' \
+                       f'_{config["task"]["dataset"]["kwargs"]["segments"]["test"]}.pkl'
     if not h_path.exists():
         h = init_instance_by_config(h_conf)
         h.to_pickle(h_path, dump_all=True)
