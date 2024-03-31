@@ -88,7 +88,7 @@ def _mask_mlp158(meta_input):
 def preprocess(
     task_list, factor_num=6, is_mlp=False, alpha=360, step=20, H=1, not_sequence=False, to_tensor=True,
 ):
-    skip = []
+    skip_ids = []
     for i, task in enumerate(task_list):
         meta_input = task.get_meta_input()
         data_type = set()
@@ -100,7 +100,7 @@ def preprocess(
                 if to_tensor:
                     meta_input[k] = torch.tensor(meta_input[k], dtype=torch.float32)
         if task.processed_meta_input['y_test'].shape[0] == 0:
-            skip.append(i)
+            skip_ids.append(i)
         if is_mlp and alpha == 158:
             _mask_mlp158(meta_input)
 
@@ -120,20 +120,24 @@ def preprocess(
 
         test_date = meta_input["test_idx"].codes[0] - meta_input["test_idx"].codes[0][0]
         meta_input["meta_end"] = (test_date <= (test_date[-1] - H + 1)).sum()
-    if skip:
+
+    if skip_ids:
         ''' Delete tasks with empty test data '''
-        j = 0
-        for idx, i in enumerate(skip):
-            if i < j:
-                continue
-            j = i + 1
-            k = idx + 1
-            while j == skip[k]:
-                k += 1
-                j = skip[k]
-            for key in ['X_train', 'y_train']:
-                task_list[j].processed_meta_input[key] = task_list[i].processed_meta_input[key]
-        task_list = [task_list[i] for i in range(len(task_list)) if i not in skip]
+        i = 0
+        while i < len(skip_ids):
+            task_w_train_wo_test = task_list[skip_ids[i]]
+            # loop to skip continuous empty test data.
+            while i + 1 < len(skip_ids) and skip_ids[i + 1] == skip_ids[i] + 1:
+                i += 1
+            # When test data comes, the current task has no training data and should look back
+            not_skip = skip_ids[i] + 1
+            if not_skip < len(task_list):
+                for key in task_w_train_wo_test.keys():
+                    if 'train' in key:
+                        task_list[not_skip][key] = task_w_train_wo_test[key]
+            i += 1
+
+        task_list = [task_list[i] for i in range(len(task_list)) if i not in skip_ids]
     return task_list
 
 
