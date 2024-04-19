@@ -5,8 +5,11 @@ if [ ! -d "./backtest" ]; then
     mkdir ./backtest
 fi
 
-# set the config
+# set the market, you can choose `csi300` or `csi500`
 universe=csi300
+
+# set the flag: whether only backtest. 
+# If choose 'true', we will directly use the trained model and do backtesting; If choose 'false', the script will first train then backtest.
 only_backtest=false
 
 sed -i "s/csi.../$universe/g" workflow_config_master_Alpha158.yaml
